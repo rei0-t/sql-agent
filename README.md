@@ -227,6 +227,19 @@ SQLAGENT_LLM_MODEL=qwen-plus
 SQLAGENT_LLM_API_KEY=sk-...
 ```
 
+## 想读懂它怎么实现的
+
+[docs/TUTORIAL.md](docs/TUTORIAL.md) 是写给 **agent 初学者**的教程：从「一次提问在代码里走了哪几步」开始，
+逐层拆开上下文装配、两段式生成、只读闸门、执行器、自纠错、SSE，最后是 6 个可动手的实验
+（其中 3 个不花钱：看上下文、抓 SSE、让闸门拒一条 SQL）+ 改造练习和学习路线。
+
+配套的两个教学脚本：
+
+```bash
+python scripts/inspect_context.py --sqlite data/demo/shop.db --question "2026 年第三季度华东区的 GMV 是多少"
+python scripts/guard_demo.py
+```
+
 ## 架构
 
 ```
