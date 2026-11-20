@@ -1,0 +1,81 @@
+# 业务语义层示例（复制到 SQLAGENT_SEMANTICS_PATH 指向的位置即可生效）
+# 作用：把“指标怎么算、术语指什么、时间怎么切”从 prompt 挪到配置里，可 review、可 diff、可回滚。
+
+metrics:
+  gmv:
+    name: GMV（成交额）
+    expr: "SUM(o.pay_amount)"
+    filters:
+      - "o.status IN ('paid', 'shipped', 'done')"
+      - "c.is_test = 0"
+    note: 不含取消/退款订单，也不含测试账号；pay_amount 未扣退款，需要净额时另减 refunds.amount
+
+  order_count:
+    name: 订单数
+    expr: "COUNT(DISTINCT o.id)"
+    filters:
+      - "o.status IN ('paid', 'shipped', 'done')"
+      - "c.is_test = 0"
+
+  aov:
+    name: 客单价
+    expr: "SUM(o.pay_amount) / NULLIF(COUNT(DISTINCT o.id), 0)"
+    filters:
+      - "o.status IN ('paid', 'shipped', 'done')"
+      - "c.is_test = 0"
+    note: 口径为 GMV / 订单数，不是按商品行计算
+
+  refund_amount:
+    name: 退款金额
+    expr: "SUM(r.amount)"
+    note: 退款在独立的 refunds 表里
+
+  gmv_by_category:
+    name: 品类 / 商品 GMV
+    expr: "SUM(oi.quantity * oi.unit_price)"
+    note: >-
+      必须从 order_items 出发按 oi.product_id 关联 products。禁止用 SUM(orders.pay_amount)：
+      一个订单有多条明细，订单级金额会被按明细行重复累加。
+
+  refund_rate:
+    name: 退款率（退款金额 / GMV）
+    expr: "退款金额 ÷ GMV，分子分母各用子查询"
+    note: >-
+      不要用 JOIN 把 refunds 和 orders 连起来算：退款只发生在 cancelled/refunded 订单上，
+      而 GMV 只统计 paid/shipped/done，两者集合不相交，join 后会互相过滤成空集。
+      正确写法：
+      SELECT (SELECT SUM(amount) FROM refunds WHERE created_at >= '2026-01-01' AND created_at < '2027-01-01')
+      / (SELECT SUM(o.pay_amount) FROM orders o JOIN customers c ON c.id = o.customer_id
+         WHERE o.status IN ('paid','shipped','done') AND c.is_test = 0
+           AND o.created_at >= '2026-01-01' AND o.created_at < '2027-01-01')
+
+synonyms:
+  华东: "c.region = '华东'"
+  华南: "c.region = '华南'"
+  华北: "c.region = '华北'"
+  成交额: "GMV"
+  销售额: "GMV"
+  测试账号: "c.is_test = 1"
+  已退款: "o.status = 'refunded'"
+  品类GMV: "gmv_by_category（从 order_items 起算）"
+  各品类: "按 products.category 分组，金额用 gmv_by_category"
+
+notes:
+  - "orders.created_at 是文本，格式 'YYYY-MM-DD HH:MM:SS'"
+  - "统计口径默认排除 c.is_test = 1 的测试账号（含各类计数与金额）"
+  - "取消与退款订单（cancelled / refunded）不计入成交"
+  - "季度、月份一律用日期区间比较，不要用 strftime 拼季度字符串（strftime('%Y-Q%m') 是错的）"
+  - "orders.pay_amount 是订单级金额：先与 order_items 连接再 SUM 会重复计算。按品类/商品统计时用 SUM(oi.quantity * oi.unit_price)"
+  - "平均每单件数 = SUM(oi.quantity) / COUNT(DISTINCT oi.order_id)，不是 AVG(oi.quantity)"
+
+examples:
+  - question: "2026 年第三季度华东区的 GMV 是多少"
+    sql: >-
+      SELECT SUM(o.pay_amount) AS gmv FROM orders o JOIN customers c ON c.id = o.customer_id
+      WHERE o.status IN ('paid','shipped','done') AND c.is_test = 0 AND c.region = '华东'
+      AND o.created_at >= '2026-07-01' AND o.created_at < '2026-10-01'
+  - question: "2026 年 3 月有多少有效订单"
+    sql: >-
+      SELECT COUNT(DISTINCT o.id) AS order_count FROM orders o JOIN customers c ON c.id = o.customer_id
+      WHERE o.status IN ('paid','shipped','done') AND c.is_test = 0
+      AND o.created_at >= '2026-03-01' AND o.created_at < '2026-04-01'

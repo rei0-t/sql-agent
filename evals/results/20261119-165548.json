@@ -1,0 +1,327 @@
+{
+  "model": "qwen-plus",
+  "cases": 20,
+  "ex": 0.95,
+  "tokens": 86407,
+  "results": [
+    {
+      "id": "q01",
+      "question": "一共有多少客户",
+      "tags": [
+        "count"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(*) AS customer_count FROM customers AS c WHERE c.is_test = 0 LIMIT 200",
+      "elapsed_ms": 5559,
+      "tokens": 4163,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q02",
+      "question": "有效订单有多少笔",
+      "tags": [
+        "count",
+        "semantics"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(DISTINCT o.id) AS order_count FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 LIMIT 200",
+      "elapsed_ms": 7482,
+      "tokens": 4298,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q03",
+      "question": "2026 年 6 月的 GMV 是多少",
+      "tags": [
+        "time",
+        "semantics"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT SUM(o.pay_amount) AS gmv FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 AND o.created_at >= '2026-06-01' AND o.created_at < '2026-07-01' LIMIT 200",
+      "elapsed_ms": 9750,
+      "tokens": 4503,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q04",
+      "question": "华东区 2026 年第二季度的 GMV 是多少",
+      "tags": [
+        "time",
+        "join",
+        "semantics"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT SUM(o.pay_amount) AS gmv FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 AND c.region = '华东' AND o.created_at >= '2026-04-01' AND o.created_at < '2026-07-01' LIMIT 200",
+      "elapsed_ms": 9591,
+      "tokens": 4516,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q05",
+      "question": "各大区的 GMV 排名",
+      "tags": [
+        "group",
+        "semantics"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT c.region, SUM(o.pay_amount) AS gmv FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 GROUP BY c.region ORDER BY gmv DESC LIMIT 200",
+      "elapsed_ms": 9642,
+      "tokens": 4525,
+      "gold_rows": 7,
+      "got_rows": 7
+    },
+    {
+      "id": "q06",
+      "question": "GMV 最高的 3 个品类是什么",
+      "tags": [
+        "multi_join",
+        "rank",
+        "semantics"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT p.category, SUM(oi.quantity * oi.unit_price) AS gmv_by_category FROM order_items AS oi JOIN products AS p ON oi.product_id = p.id JOIN orders AS o ON oi.order_id = o.id JOIN customers AS c ON o.customer_id = c.id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 GROUP BY p.category ORDER BY gmv_by_category DESC LIMIT 3",
+      "elapsed_ms": 9652,
+      "tokens": 4516,
+      "gold_rows": 3,
+      "got_rows": 3
+    },
+    {
+      "id": "q07",
+      "question": "按客单价排序，前 5 个城市是哪些",
+      "tags": [
+        "metric",
+        "rank",
+        "semantics"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT c.city, SUM(o.pay_amount) / NULLIF(COUNT(DISTINCT o.id), 0) AS aov FROM customers AS c JOIN orders AS o ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 GROUP BY c.city ORDER BY aov DESC LIMIT 5",
+      "elapsed_ms": 9155,
+      "tokens": 4535,
+      "gold_rows": 5,
+      "got_rows": 5
+    },
+    {
+      "id": "q08",
+      "question": "2026 年 8 月的订单数是多少",
+      "tags": [
+        "time",
+        "count"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(DISTINCT o.id) AS order_count FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 AND o.created_at >= '2026-08-01' AND o.created_at < '2026-09-01' LIMIT 200",
+      "elapsed_ms": 11550,
+      "tokens": 4530,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q09",
+      "question": "2026 年退款总金额是多少",
+      "tags": [
+        "sum"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT SUM(r.amount) AS refund_amount FROM refunds AS r WHERE r.created_at >= '2026-01-01' AND r.created_at < '2027-01-01' LIMIT 200",
+      "elapsed_ms": 9061,
+      "tokens": 4439,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q10",
+      "question": "2026 年上半年的 GMV 是多少",
+      "tags": [
+        "time",
+        "semantics"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT SUM(o.pay_amount) AS gmv FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 AND o.created_at >= '2026-01-01' AND o.created_at < '2026-07-01' LIMIT 200",
+      "elapsed_ms": 10570,
+      "tokens": 4538,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q11",
+      "question": "现在在售的商品有多少个",
+      "tags": [
+        "filter"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(*) AS product_count FROM products AS p WHERE p.is_active = 1 LIMIT 200",
+      "elapsed_ms": 5793,
+      "tokens": 4187,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q12",
+      "question": "手机类商品的平均价格是多少",
+      "tags": [
+        "filter",
+        "avg"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT AVG(p.price) AS avg_price FROM products AS p WHERE p.category = '手机' LIMIT 200",
+      "elapsed_ms": 6461,
+      "tokens": 4221,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q13",
+      "question": "2026 年每个月的 GMV 分别是多少",
+      "tags": [
+        "time",
+        "group"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT STRFTIME('%Y-%m', o.created_at) AS month, SUM(o.pay_amount) AS gmv FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 AND o.created_at >= '2026-01-01' AND o.created_at < '2027-01-01' GROUP BY STRFTIME('%Y-%m', o.created_at) ORDER BY month LIMIT 200",
+      "elapsed_ms": 14290,
+      "tokens": 4941,
+      "gold_rows": 11,
+      "got_rows": 11
+    },
+    {
+      "id": "q14",
+      "question": "下单次数最多的客户下了多少单",
+      "tags": [
+        "rank",
+        "join"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT MAX(t.order_count) AS order_count FROM (SELECT COUNT(*) AS order_count FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 GROUP BY o.customer_id) AS t LIMIT 200",
+      "elapsed_ms": 8474,
+      "tokens": 4361,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q15",
+      "question": "华北区 2026 年 1 月有多少有效订单",
+      "tags": [
+        "time",
+        "join"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(DISTINCT o.id) AS order_count FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 AND c.region = '华北' AND o.created_at >= '2026-01-01' AND o.created_at < '2026-02-01' LIMIT 200",
+      "elapsed_ms": 10324,
+      "tokens": 4531,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q16",
+      "question": "2026 年 3 月华东区的订单数是多少",
+      "tags": [
+        "time",
+        "join"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(DISTINCT o.id) AS order_count FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 AND c.region = '华东' AND o.created_at >= '2026-03-01' AND o.created_at < '2026-04-01' LIMIT 200",
+      "elapsed_ms": 9992,
+      "tokens": 4458,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q17",
+      "question": "测试账号贡献的 GMV 是多少",
+      "tags": [
+        "semantics",
+        "reverse"
+      ],
+      "ok": false,
+      "reason": "反问：问题中‘测试账号贡献的 GMV’与业务口径冲突：口径规定 GMV 必须排除测试账号（c.is_test = 0），而此处",
+      "attempts": 0,
+      "sql": "",
+      "elapsed_ms": 3116,
+      "tokens": 1982,
+      "gold_rows": 1,
+      "got_rows": 0
+    },
+    {
+      "id": "q18",
+      "question": "平均每笔订单包含几件商品",
+      "tags": [
+        "ratio",
+        "join"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT SUM(oi.quantity) * 1.0 / NULLIF(COUNT(DISTINCT oi.order_id), 0) AS avg_items_per_order FROM order_items AS oi JOIN orders AS o ON oi.order_id = o.id JOIN customers AS c ON o.customer_id = c.id WHERE o.status IN ('paid', 'shipped', 'done') AND c.is_test = 0 LIMIT 200",
+      "elapsed_ms": 8693,
+      "tokens": 4443,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q19",
+      "question": "2026 年新增了多少客户",
+      "tags": [
+        "time",
+        "count"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(*) AS customer_count FROM customers AS c WHERE c.is_test = 0 AND c.created_at >= '2026-01-01' AND c.created_at < '2027-01-01' LIMIT 200",
+      "elapsed_ms": 8828,
+      "tokens": 4395,
+      "gold_rows": 1,
+      "got_rows": 1
+    },
+    {
+      "id": "q20",
+      "question": "除了已取消和已退款，还有多少订单",
+      "tags": [
+        "filter"
+      ],
+      "ok": true,
+      "reason": "",
+      "attempts": 1,
+      "sql": "SELECT COUNT(DISTINCT o.id) AS order_count FROM orders AS o JOIN customers AS c ON c.id = o.customer_id WHERE NOT o.status IN ('cancelled', 'refunded') AND c.is_test = 0 LIMIT 200",
+      "elapsed_ms": 7662,
+      "tokens": 4325,
+      "gold_rows": 1,
+      "got_rows": 1
+    }
+  ]
+}

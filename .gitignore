@@ -1,0 +1,44 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ---- 运行期数据（含元数据库与日志）----
+backend/data/
+backend/.pytest_tmp/
+/data/
+*.db
+*.db-journal
+*.sqlite3
+
+# ---- 前端 ----
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# ---- 本地配置与临时文件 ----
+.env
+.env.*
+!.env.example
+!.env.prod.example
+.tmp/
+.shots/
+*.log
+
+# ---- 生产部署产物 ----
+.env.prod
+deploy/aliyun/data/
+deploy/aliyun/backups/
+deploy/aliyun/semantics/
+
+# ---- 编辑器与系统 ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

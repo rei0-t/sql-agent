@@ -1,0 +1,61 @@
+/* ============================================================
+   设计令牌
+   基调：纸白画布 + 墨黑动作色，只有语义色带一点点色彩。
+   原则：不加渐变、不用彩色实心块、阴影只给浮层。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* 画布与表面 */
+  --paper: #f5f4f1;
+  --surface: #ffffff;
+  --surface-muted: #faf9f7;
+  --surface-sunken: #efede8;
+
+  /* 文字 */
+  --ink: #17181a;
+  --ink-2: #55575c;
+  --ink-3: #8b8c90;
+  --ink-4: #b5b4af;
+
+  /* 线条 */
+  --line: #e7e4de;
+  --line-strong: #d6d2ca;
+
+  /* 动作色（主按钮 = 墨黑） */
+  --action: #17181a;
+  --action-hover: #2c2d31;
+  --action-ink: #ffffff;
+
+  /* 语义色：低饱和，只用于状态点与标签 */
+  --ok: #1a6b46;
+  --ok-soft: #e9f2ec;
+  --warn: #8f5a06;
+  --warn-soft: #f8efe0;
+  --danger: #a92d22;
+  --danger-soft: #f9ecea;
+  --info: #3a5580;
+  --info-soft: #edf1f7;
+  --focus: #2c5bdd;
+
+  /* 形状 */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --shadow-float: 0 1px 2px rgba(23, 24, 26, 0.05), 0 18px 44px -16px rgba(23, 24, 26, 0.22);
+
+  /* 排版 */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* 布局 */
+  --sidebar-w: 212px;
+  --content-max: 1120px;
+
+  /* 动效：只做 120–180ms 的 ease-out，不做弹跳 */
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --dur: 140ms;
+}

@@ -1,0 +1,85 @@
+import { getToken } from './token';
+
+export interface ChatConfig {
+  model: string;
+  configured: boolean;
+  max_rows: number;
+  query_timeout: number;
+  max_repair: number;
+}
+
+export interface ChatEventHandlers {
+  onEvent: (event: string, data: Record<string, unknown>) => void;
+}
+
+export async function fetchChatConfig(): Promise<ChatConfig> {
+  const response = await fetch('/api/v1/chat/config', {
+    headers: { Authorization: `Bearer ${getToken() ?? ''}` },
+  });
+  if (!response.ok) {
+    throw new Error(`获取对话配置失败（HTTP ${response.status}）`);
+  }
+  return (await response.json()) as ChatConfig;
+}
+
+function parseBlock(block: string): { event: string; data: string } {
+  let event = 'message';
+  let data = '';
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      data += line.slice(5).trim();
+    }
+  }
+  return { event, data };
+}
+
+/** POST + 手写 SSE 解析：EventSource 不支持 POST，也不能带 Authorization 头。 */
+export async function streamChat(
+  payload: { datasource_id: number; question: string },
+  handlers: ChatEventHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch('/api/v1/chat/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getToken() ?? ''}`,
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => '');
+    throw new Error(text || `请求失败（HTTP ${response.status}）`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const { event, data } = parseBlock(block);
+      if (data) {
+        try {
+          handlers.onEvent(event, JSON.parse(data) as Record<string, unknown>);
+        } catch {
+          // 忽略无法解析的心跳/空块
+        }
+      }
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+}

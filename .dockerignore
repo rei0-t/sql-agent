@@ -1,0 +1,26 @@
+.git
+.gitignore
+.github
+
+# Python
+backend/.venv
+backend/__pycache__
+**/__pycache__
+**/*.pyc
+backend/.pytest_tmp
+backend/data
+
+# 前端依赖与产物（镜像里会重新装、重新构建）
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# 本地数据与截图
+data
+.shots
+.tmp
+*.log
+
+# 文档与评测不需要进镜像
+docs/images
+evals/results
