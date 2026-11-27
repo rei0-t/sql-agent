@@ -148,7 +148,8 @@ cd backend && python ../evals/run_eval.py --save     # 20 题，结果写入 eva
 ### Docker 一条命令
 
 ```bash
-cp .env.example .env          # 只有 SECRET_KEY 和管理员口令是必须改的
+cp .env.example .env                                  # 只有 SECRET_KEY 和管理员口令是必须改的
+mkdir -p deploy/data && sudo chown -R 10001:10001 deploy/data   # 容器以非 root（uid 10001）运行
 docker compose -f deploy/docker-compose.yaml up -d --build
 ```
 
@@ -157,6 +158,17 @@ docker compose -f deploy/docker-compose.yaml up -d --build
 1. 进「设置」→ 填 Base URL（默认通义千问兼容端点）、模型名、API Key → 点「测试连接」→ 保存
 2. 进「数据源」→ 新建 → 选 MySQL / PostgreSQL / SQLite，填**只读账号**
 3. 进「对话」→ 直接提问
+
+### 阿里云 ECS 一条命令
+
+```bash
+# 在一台 Ubuntu 22.04/24.04 或 Alibaba Cloud Linux 的 ECS 上（root）
+sudo bash deploy/aliyun/install.sh
+```
+
+装 Docker + Nginx、生成随机密钥、构建、启动、反代、自检，跑完直接打印访问地址和初始密码。
+详细的「买机器 → 开安全组 → 上传 → 一条命令 → 验证」见
+[deploy/aliyun/START-HERE.md](deploy/aliyun/START-HERE.md)。
 
 部署到公网服务器时看这两份：
 
