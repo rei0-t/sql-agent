@@ -54,7 +54,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 - **SQLite 可直接上传文件**：浏览器选文件 → 落到你自己的空间 → 立刻可查，不用碰服务器
   三道上限（单文件 50 MB / 每空间 200 MB / 全站 2 GB），`SQLAGENT_ALLOW_UPLOAD=false` 可整体关闭
 - **示例库自动发放**：新用户注册完立刻有一个只读的演示电商库（20k 订单），打开就能提问
-- **问答配额**：按工作空间每小时限次（默认 60，`/chat/stream` 与 `/query` 合计），超限 429
+- **提问额度**：每个工作空间总共 5 次（可配，管理员豁免），`/chat/stream` 与 `/query` 共用同一账本
 - **凭证不信封**：数据源口令用 Fernet 加密落库，接口永不回显；L2 及以上强制要求独立的可写账号
 - 审计：登录、增删数据源、探测、取结构全部留痕（只追加）
 - 单进程部署：后端自动托管 `frontend/dist`，SPA 路由回退已处理
@@ -120,7 +120,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 | SSRF | `127.0.0.1 / localhost / 169.254.169.254 / 10.x / ::1 / 解析到内网的域名` 全部 400；公网端点正常保存 |
 | 限流 | 同一用户名 5 次失败后第 6 次 429（带 `Retry-After`）；成功登录清零；关开关即恢复 |
 | 迁移 | 空库 `upgrade` 建 6 张表；老库自动 stamp；`alembic check` 与模型零差异 |
-| 评测 | 20 题演示集，`qwen-plus`，EX 见下方「评测」一节 |
+| 评测 | 20 题演示集，`qwen-plus` / `qwen-flash` 各跑一遍，见下方「评测」一节 |
 | 前端构建 | `vue-tsc --noEmit` 0 error + `vite build` 成功，产物 gzip 71 KB |
 | 未验证 | **PostgreSQL**（本机无实例，连握手都没跑过）、**Docker 镜像**（本机无 Docker，从未构建）、任意 schema 的准确率（见下） |
 
@@ -136,6 +136,17 @@ cd backend && python ../evals/run_eval.py --save     # 20 题，结果写入 eva
 |---|---|---|
 | 第一轮 | 75%（15/20） | 暴露 4 类问题：时间表达式编造（`strftime('%Y-Q%m')`）、fan-out 重复求和、过度反问、平均的平均 |
 | 补语义约定 + 固定 seed | **95%（19/20）** | 8.8s/题，0.95 次尝试，约 4.3k token/题 |
+| 上一条之后再跑（当前代码） | **100%（20/20）** | `qwen-plus`，9.7s/题，1.15 次尝试，约 5.0k token/题 |
+
+**默认模型为什么是 `qwen-flash`**：同一个 20 题集、同一份语义层，只换模型：
+
+| 模型 | EX | 平均耗时 | token/题 |
+|---|---|---|---|
+| `qwen-plus` | 100%（20/20） | 9.7s | 5.0k |
+| **`qwen-flash`（默认）** | **90%（18/20）** | **4.8s** | 5.0k |
+
+flash 快一倍、单价更低，代价是复杂问题上会错两题。求稳就一行改回 `SQLAGENT_LLM_MODEL=qwen-plus`——
+**这个取舍应该由部署方按自己的场景决定，而不是藏在代码里**。
 
 唯一失败的是 q17「测试账号贡献的 GMV 是多少」：模型指出这个问题与 GMV 口径（必须排除测试账号）自相矛盾，于是反问而不是硬算。这是**我们希望的追问行为**，但评测按"没给出结果"记为失败——规则保持严格，不替模型找补。
 
@@ -234,7 +245,7 @@ curl -s http://127.0.0.1:8080/api/v1/query \
   "truncated": false,
   "elapsed_ms": 11783,
   "tokens": 5042,
-  "model": "qwen-plus",
+  "model": "qwen-flash",
   "error": null,
   "clarification": null
 }
@@ -285,7 +296,7 @@ cp docs/semantics.example.yaml backend/data/semantics.d/1.yaml
 
 ```bash
 SQLAGENT_LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-SQLAGENT_LLM_MODEL=qwen-plus
+SQLAGENT_LLM_MODEL=qwen-flash
 SQLAGENT_LLM_API_KEY=sk-...
 ```
 
@@ -400,7 +411,7 @@ P2 不是"还没做"，是**这一期明确不做**：没有 `/mutation` 路由�
 | **登录爆破** | 同一 IP 与同一用户名各一个滑动窗口，超限返回 429（带 `Retry-After`），并记一条 `rate_limited` 审计。**硬锁定**：超限后正确密码也拒绝——否则限流形同虚设；代价是知道用户名的人可以把你锁 5 分钟 | `SQLAGENT_LOGIN_RATELIMIT_ENABLED=false` 关闭 |
 | **越权读** | 所有数据源查询按 `workspace_id` 过滤，「不存在」与「无权」统一返回 404，避免用状态码探测 id | — |
 | **注册刷号** | 同一 IP 每小时最多建 5 个账号（按**成功建号**计数，重名/格式错不占额度），超限 429 | `SQLAGENT_REGISTER_RATELIMIT_ENABLED=false` 关闭 |
-| **额度被刷** | 每个工作空间每小时最多 60 次问答（两条通道合计），超限 429 + `Retry-After`，并记 `rate_limited` 审计 | `SQLAGENT_CHAT_MAX_PER_HOUR` 调整 / `SQLAGENT_CHAT_RATELIMIT_ENABLED=false` 关闭 |
+| **额度被刷** | 每个工作空间**总共** 5 次提问（持久计数，重启不清零；管理员豁免），超限 429 并记 `quota_exhausted` 审计 | `SQLAGENT_CHAT_MAX_QUESTIONS` 调整（0 = 不限） |
 | **Prompt 注入** | 表名/列注释/采样值先清洗（折叠换行、拆掉分隔符、截断）再进 prompt；上下文用显式边界标记为"数据而非指令"；用户问题命中典型越狱话术时记 `injection_flags` 并在 `done` 事件里透出 | `SQLAGENT_STRICT_TABLE_ALLOWLIST=true` 进一步把可查表限制为"给模型看过的表" |
 | **改密码后旧会话** | `token_version` 自增，已签发的令牌全部失效；禁用账号同样立即作废在线会话 | — |
 

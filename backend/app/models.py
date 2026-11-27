@@ -55,6 +55,8 @@ class Workspace(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(128), default="默认工作空间")
+    # 已消耗的提问次数（对着公共 Key 对外开放时，这就是每人额度的账本）
+    questions_used: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 

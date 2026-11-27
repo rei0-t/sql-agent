@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # ---- 模型（OpenAI 兼容端点）----
     llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    llm_model: str = "qwen-plus"
+    llm_model: str = "qwen-flash"
     llm_api_key: str = ""
     llm_timeout: int = 60
     llm_temperature: float = 0.0
@@ -101,10 +101,10 @@ class Settings(BaseSettings):
     # 每个工作空间自动获得一个只读的演示数据源（同一个文件的多个引用）
     demo_datasource: bool = True
 
-    # ---- 问答配额 ----
-    # 用公共模型 Key 对外开放时，这层是唯一防刷的手段（按工作空间计）
-    chat_ratelimit_enabled: bool = True
-    chat_max_per_hour: int = 60
+    # ---- 问答额度 ----
+    # 每个工作空间总共能问多少次（持久计数，重启不清零）；0 = 不限
+    # 用公共模型 Key 对外开放时，这层是唯一防刷的手段；管理员账号不受限制
+    chat_max_questions: int = 5
 
     # ---- SQLite 文件上传 ----
     allow_upload: bool = True

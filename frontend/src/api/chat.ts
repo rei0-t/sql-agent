@@ -6,6 +6,8 @@ export interface ChatConfig {
   max_rows: number;
   query_timeout: number;
   max_repair: number;
+  /** 剩余提问额度；null / 缺省表示不限 */
+  remaining_questions?: number | null;
 }
 
 export interface ChatEventHandlers {

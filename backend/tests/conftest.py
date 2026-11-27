@@ -59,15 +59,16 @@ def offline_dns(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clean_rate_limits():
-    """每个用例都从零开始计失败次数，避免互相干扰。"""
+    """每个用例都从零开始计失败次数，避免互相干扰。
+
+    提问额度是落在库里的、按工作空间算的：每个用例都注册新账号，天然互不影响，
+    所以这里只清登录/注册的滑动窗口。
+    """
     from app.api.auth import reset_limits
-    from app.quota import reset_chat_limits
 
     reset_limits()
-    reset_chat_limits()
     yield
     reset_limits()
-    reset_chat_limits()
 
 
 @pytest.fixture(scope="session")

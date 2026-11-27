@@ -31,6 +31,8 @@ const chat = useChatStore();
 const route = useRoute();
 
 const config = ref<ChatConfig | null>(null);
+/** 剩余提问额度：null = 不限（管理员或未开启额度） */
+const remaining = ref<number | null>(null);
 const selectedDs = ref('');
 const input = ref('');
 const running = ref(false);
@@ -43,8 +45,14 @@ let controller: AbortController | null = null;
 const thread = computed(() => chat.activeThread);
 const turns = computed<ChatTurn[]>(() => thread.value?.turns ?? []);
 const hasDatasource = computed(() => store.items.length > 0);
+const quotaLeft = computed(() => remaining.value);
+const exhausted = computed(() => quotaLeft.value !== null && quotaLeft.value <= 0);
 const canSend = computed(
-  () => input.value.trim().length > 0 && selectedDs.value !== '' && !running.value,
+  () =>
+    input.value.trim().length > 0 &&
+    selectedDs.value !== '' &&
+    !running.value &&
+    !exhausted.value,
 );
 const selectedName = computed(
   () => store.items.find((item) => String(item.id) === selectedDs.value)?.name ?? '选择数据源',
@@ -53,6 +61,7 @@ const selectedName = computed(
 onMounted(async () => {
   try {
     config.value = await fetchChatConfig();
+    remaining.value = config.value.remaining_questions ?? null;
   } catch {
     config.value = null;
   }
@@ -154,6 +163,10 @@ function handle(turn: ChatTurn, event: string, data: Record<string, unknown>): v
       }
       turn.elapsed = Number(data.elapsed_ms ?? turn.elapsed);
       turn.tokens = Number(data.tokens ?? turn.tokens);
+      // 服务端每次都会回传剩余额度（null = 不限）
+      if ("remaining" in data) {
+        remaining.value = data.remaining === null ? null : Number(data.remaining);
+      }
       scrollToBottom();
       break;
     }
@@ -448,8 +461,12 @@ function formatCell(value: unknown): string {
             <RouterLink class="composer__link" :to="{ name: 'settings' }">设置</RouterLink>
             填 Base URL、模型名和 Key。
           </template>
+          <template v-else-if="exhausted">
+            试用额度已用完。想继续用，在「设置」里填自己的模型 Key，或联系站点管理员。
+          </template>
           <template v-else>
-            Enter 发送 · Shift + Enter 换行 · 只执行只读查询，不会改动数据
+            Enter 发送 · Shift + Enter 换行 · 只读查询
+            <template v-if="quotaLeft !== null"> · 还剩 {{ quotaLeft }} 次提问</template>
           </template>
         </p>
       </div>

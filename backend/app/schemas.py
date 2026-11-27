@@ -166,6 +166,8 @@ class ChatConfigOut(BaseModel):
     max_rows: int
     query_timeout: int
     max_repair: int
+    # 剩余提问额度；None = 不限（管理员或关闭了额度）
+    remaining_questions: int | None = None
 
 
 class ChatFeedbackIn(BaseModel):

@@ -14,7 +14,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +29,8 @@ from app.deps import (
 )
 from app.engine.llm import ChatModel
 from app.engine.pipeline import Answer, answer_question
-from app.quota import check_chat, hit_chat
+from app.models import Workspace
+from app.quota import consume, remaining
 from app.schemas import ChatConfigOut, ChatFeedbackIn, ChatRequest
 from app.store import owned_datasource, read_password, snapshot
 
@@ -46,13 +47,22 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 @router.get("/config", response_model=ChatConfigOut)
 async def chat_config(
     model: ChatModel = Depends(get_model_for_principal),
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> ChatConfigOut:
+    workspace = await session.get(Workspace, principal.workspace_id)
+    remaining_questions = (
+        None
+        if principal.is_admin or workspace is None
+        else remaining(workspace.questions_used)
+    )
     return ChatConfigOut(
         model=getattr(model, "name", settings.llm_model),
         configured=bool(getattr(model, "configured", False)),
         max_rows=settings.read_max_rows,
         query_timeout=settings.query_timeout,
         max_repair=settings.max_repair,
+        remaining_questions=remaining_questions,
     )
 
 
@@ -68,22 +78,18 @@ async def chat_stream(
     password = read_password(stored)
     ds = snapshot(stored)
 
-    # 配额：用公共 Key 对外开放时，这层是唯一防刷的手段
-    limited = check_chat(principal.workspace_id)
-    if limited is not None:
+    # 额度：用公共 Key 对外开放时，这层是唯一防刷的手段
+    try:
+        remaining = await consume(session, principal)
+    except HTTPException as exc:
         await auditor.log(
             "chat.read",
             target_type="datasource",
             target_id=body.datasource_id,
             result="denied",
-            detail={"reason": "rate_limited", "retry_after": limited.retry_after},
+            detail={"reason": "quota_exhausted", "detail": exc.detail},
         )
-        raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            f"提问次数已达上限，请 {limited.retry_after} 秒后再试",
-            headers={"Retry-After": str(limited.retry_after)},
-        )
-    hit_chat(principal.workspace_id)
+        raise
 
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
@@ -107,6 +113,8 @@ async def chat_stream(
                         "clarification": answer.clarification,
                         # 问题里命中了可疑话术：不拦截，但让调用方知道
                         "injection_flags": answer.injection_flags,
+                        # 剩余额度（None = 不限）；前端据此更新提示
+                        "remaining": remaining,
                     },
                 )
             )

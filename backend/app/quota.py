@@ -1,52 +1,59 @@
-"""按工作空间的问答配额。
+"""每个工作空间的提问额度。
 
-为什么需要它：一旦部署方在 ``.env.prod`` 里放了一个公共模型 Key，所有访客都会花同一份额度。
-注册限流挡的是"造号"，这里挡的是"刷问答"——一个号也能把额度烧光。
+为什么是**持久计数**而不是滑动窗口：额度用完就是"这个人用完了"，重启进程不该把机会还回去。
+所以计数落在 ``workspaces.questions_used``，窗口限流只用来挡短时间的暴力刷取（不存在了）。
 
-为什么按工作空间而不是按 IP：一个工作空间大致等于一个人，IP 会变（手机/公司/WiFi），
-而工作空间不会。
-
-计数按"问题"算，不按 SSE 事件算：一次问答只消耗一格。
-
-限流器**懒创建**：上限配在 ``settings`` 里，改配置（或测试里 monkeypatch）后
-下一次检查就会用新值重建计数窗口。代价是调大上限时计数会清零，这是刻意接受的。
+规则：
+- ``SQLAGENT_CHAT_MAX_QUESTIONS`` 默认 5，设 0 表示不限
+- **管理员不受限制**：站长自己要能演示、要能排查问题，不能被自己设的额度挡住
+- 两条通道（``/chat/stream`` 与 ``/query``）共用同一个账本
 """
 
 from __future__ import annotations
 
+from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.config import settings
-from app.ratelimit import Decision, SlidingWindowLimiter
-
-_limiter: SlidingWindowLimiter | None = None
-_limiter_limit: int | None = None
+from app.deps import Principal
+from app.models import Workspace
 
 
-def _current() -> SlidingWindowLimiter:
-    global _limiter, _limiter_limit
-    limit = settings.chat_max_per_hour
-    if _limiter is None or _limiter_limit != limit:
-        _limiter = SlidingWindowLimiter(limit=limit, window_seconds=3600, max_keys=4096)
-        _limiter_limit = limit
-    return _limiter
+def limit() -> int:
+    return settings.chat_max_questions
 
 
-def _key(workspace_id: int) -> str:
-    return f"ws:{workspace_id}"
-
-
-def check_chat(workspace_id: int) -> Decision | None:
-    """超限返回决策（含 retry_after），放行返回 None。"""
-    if not settings.chat_ratelimit_enabled:
+def remaining(used: int) -> int | None:
+    """还剩几次；``None`` 表示不限。"""
+    total = limit()
+    if total <= 0:
         return None
-    decision = _current().check(_key(workspace_id))
-    return None if decision.allowed else decision
+    return max(total - used, 0)
 
 
-def hit_chat(workspace_id: int) -> None:
-    if settings.chat_ratelimit_enabled:
-        _current().hit(_key(workspace_id))
+async def consume(session: AsyncSession, principal: Principal) -> int | None:
+    """扣一次额度并返回剩余次数（``None`` = 不限）。
 
+    余额不足时抛 429；管理员直接放行。
+    """
+    if principal.is_admin:
+        return None
 
-def reset_chat_limits() -> None:
-    """测试与运维用。"""
-    _current().clear()
+    total = limit()
+    if total <= 0:
+        return None
+
+    workspace = await session.get(Workspace, principal.workspace_id)
+    if workspace is None:  # 理论上不会发生，稳妥起见按放行处理
+        return None
+
+    left = remaining(workspace.questions_used)
+    if left is None or left <= 0:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"试用额度已用完（共 {total} 次提问）。想要更多，请联系站点管理员。",
+        )
+
+    workspace.questions_used += 1
+    await session.commit()
+    return left - 1
