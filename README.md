@@ -198,6 +198,7 @@ sudo bash deploy/aliyun/install.sh
 
 部署到公网服务器时看这两份：
 
+- [docs/OPS.md](docs/OPS.md)：**运维手册**（开源维护 + 部署 + 日常运维 + 排障 + 术语表），写给不熟服务器的人
 - [deploy/README.md](deploy/README.md)：通用部署、HTTPS、备份、安全清单
 - [deploy/aliyun/README.md](deploy/aliyun/README.md)：**阿里云 ECS 一步步来**（安全组、镜像加速、备案、Nginx + SSE、运维脚本）
 
