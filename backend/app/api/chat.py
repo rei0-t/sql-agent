@@ -14,7 +14,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,6 +71,14 @@ async def chat_stream(
     stored = await owned_datasource(session, principal.workspace_id, body.datasource_id)
     password = read_password(stored)
     ds = snapshot(stored)
+
+    # 站点没配 Key 属于配置故障，不是用户的问题：在扣额度**之前**就拒绝，
+    # 否则用户白丢一次机会，还会以为是自己用错了。
+    if not getattr(model, "configured", True):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "站点还没有配置模型密钥，请联系管理员（或在「设置」里填自己的 Key）",
+        )
 
     # 额度：用公共 Key 对外开放时，这层是唯一防刷的手段
     try:

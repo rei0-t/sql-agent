@@ -191,3 +191,20 @@ def test_shared_key_still_limited(client: TestClient, monkeypatch, demo_on, fake
     ds_id = client.get("/api/v1/datasources", headers=headers).json()[0]["id"]
     assert _ask(client, headers, ds_id, "q1").status_code == 200
     assert _ask(client, headers, ds_id, "q2").status_code == 429
+
+def test_unconfigured_model_does_not_consume_quota(
+    client: TestClient, monkeypatch, demo_on
+) -> None:
+    """站点没配 Key 是配置故障，不能白扣用户的额度。"""
+    monkeypatch.setattr(settings, "chat_max_questions", 2)
+    monkeypatch.setattr(settings, "llm_api_key", "")
+
+    _, headers = _register(client)
+    ds_id = client.get("/api/v1/datasources", headers=headers).json()[0]["id"]
+
+    blocked = _ask(client, headers, ds_id, "q1")
+    assert blocked.status_code == 400
+    assert "模型密钥" in blocked.json()["detail"]
+
+    # 额度一次都没被扣
+    assert client.get("/api/v1/chat/config", headers=headers).json()["remaining_questions"] == 2

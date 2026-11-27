@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import Auditor
@@ -35,6 +35,13 @@ async def run_query(
     auditor: Auditor = Depends(get_auditor),
 ) -> QueryOut:
     ds = await owned_datasource(session, principal.workspace_id, body.datasource_id)
+
+    # 没配 Key 是配置故障：先拒绝，别浪费用户的额度
+    if not getattr(model, "configured", True):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "站点还没有配置模型密钥，请联系管理员",
+        )
 
     # 与 /chat/stream 共用同一个额度账本
     await consume(session, principal)
