@@ -86,3 +86,28 @@ export interface DatasourceSchema {
 export interface ApiErrorBody {
   detail?: unknown;
 }
+
+/** 审计记录 */
+export interface AuditEntry {
+  id: number;
+  created_at: string;
+  actor_name: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  result: string;
+  detail: Record<string, unknown> | null;
+}
+
+export interface AuditPage {
+  items: AuditEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface AuditBucket {
+  action: string;
+  result: string;
+  count: number;
+}

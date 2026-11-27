@@ -9,11 +9,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app.audit import Auditor
 from app.config import settings
-from app.deps import get_current_user, get_session
+from app.deps import Principal, get_auditor, get_principal, get_session
 from app.engine.llm import probe_endpoint
-from app.models import LlmSetting, User
+from app.models import LlmSetting
 from app.schemas import LlmSettingIn, LlmSettingOut, LlmTestIn, LlmTestOut
 from app.security import get_secret_box
 
@@ -59,7 +59,8 @@ def _to_out(row: LlmSetting | None) -> LlmSettingOut:
 
 @router.get("/llm", response_model=LlmSettingOut)
 async def get_llm_setting(
-    user: User = Depends(get_current_user),
+    user: Principal = Depends(get_principal),
+    auditor: Auditor = Depends(get_auditor),
     session: AsyncSession = Depends(get_session),
 ) -> LlmSettingOut:
     return _to_out(await _load(session, user.workspace_id))
@@ -68,7 +69,8 @@ async def get_llm_setting(
 @router.put("/llm", response_model=LlmSettingOut)
 async def save_llm_setting(
     body: LlmSettingIn,
-    user: User = Depends(get_current_user),
+    user: Principal = Depends(get_principal),
+    auditor: Auditor = Depends(get_auditor),
     session: AsyncSession = Depends(get_session),
 ) -> LlmSettingOut:
     row = await _load(session, user.workspace_id)
@@ -87,12 +89,8 @@ async def save_llm_setting(
     await session.commit()
     await session.refresh(row)
 
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="settings.llm",
-        actor_id=user.id,
-        actor_name=user.username,
+    await auditor.log(
+        "settings.llm",
         target_type="workspace",
         target_id=user.workspace_id,
         detail={
@@ -107,7 +105,8 @@ async def save_llm_setting(
 @router.post("/llm/test", response_model=LlmTestOut)
 async def test_llm_setting(
     body: LlmTestIn,
-    user: User = Depends(get_current_user),
+    user: Principal = Depends(get_principal),
+    auditor: Auditor = Depends(get_auditor),
     session: AsyncSession = Depends(get_session),
 ) -> LlmTestOut:
     row = await _load(session, user.workspace_id)
@@ -123,12 +122,8 @@ async def test_llm_setting(
         api_key = settings.llm_api_key
 
     result = await probe_endpoint(base_url=base_url, api_key=api_key, model=model)
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="settings.llm_test",
-        actor_id=user.id,
-        actor_name=user.username,
+    await auditor.log(
+        "settings.llm_test",
         result="ok" if result.ok else "error",
         detail={"base_url": base_url, "model": model, "message": result.message[:200]},
     )

@@ -34,7 +34,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
     <td width="50%"><img src="docs/images/settings.png" alt="模型与密钥设置" /></td>
   </tr>
   <tr>
-    <td><img src="docs/images/register.png" alt="注册" /></td>
+    <td><img src="docs/images/audit.png" alt="审计" /></td>
     <td><img src="docs/images/datasources.png" alt="数据源列表" /></td>
   </tr>
 </table>
@@ -82,16 +82,32 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 - `POST /api/v1/query` 用 Key 直接换 JSON：SQL、列、行、结论、耗时、token 一次返回
 - Key 只有只读权限；吊销即时生效；每次调用进审计
 
+**审计层**
+
+- 独立事务写入：业务回滚了审计也留痕（登录失败也能查到）
+- 每条记录自动带 `X-Request-ID`，响应头回传，前端截图能对上后端日志
+- 控制台可按动作 / 结果 / 关键字筛选，点开看完整 detail（SQL、耗时、token、重试次数）
+- 接口只有 GET：审计只追加，不提供修改与删除
+
+**工程加固**
+
+- `store.py` 收敛「数据源归属校验 + 凭证读取 + 会话外快照」，三处重复实现合并为一处
+- Alembic 迁移：`python scripts/migrate.py`；老库自动 `stamp` 基线，随后 `--revision` 生成新版本
+- 结构缓存换成有上限的 TTL 缓存（LRU + TTL），不再无限增长
+- 取行数加了总预算（默认 2s）、采样改为并发，冷启动不再被大表拖住
+
 **已验证**（不是"应该能跑"）：
 
 | 项 | 结果 |
 |---|---|
-| 后端测试 | 67 passed（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、API Key、注册与多租户隔离、凭证加密、审计） |
+| 后端测试 | 75 passed（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
 | 端到端 | 登录 → 建源 → 测试 → 取结构：5 张表 / 20,000 订单 / 67 ms |
 | 真实问答 | 「2026 Q3 华东区 GMV」→ `15,579,548.46`，与手算一致，11.6s / 4.3k token |
 | 开发者接口 | 用 `sa_live_…` 调 `/query`，12.1s 返回 `{sql, columns, rows, summary, tokens}` |
+| 审计链路 | 一次问答自动落 `chat.read`，带 request_id / SQL / token / 耗时；失败登录也留痕 |
+| 迁移 | 空库 `upgrade` 建 6 张表；老库自动 stamp；`alembic check` 与模型零差异 |
 | 评测 | 20 题演示集，`qwen-plus`，EX 见下方「评测」一节 |
-| 前端构建 | `vue-tsc --noEmit` 0 error + `vite build` 成功，产物 gzip 70 KB |
+| 前端构建 | `vue-tsc --noEmit` 0 error + `vite build` 成功，产物 gzip 71 KB |
 | 未验证 | Docker 镜像（本机没有 Docker）、MySQL/PostgreSQL 真实连通（无实例，仅单测覆盖构造逻辑） |
 
 ## 评测
@@ -297,6 +313,11 @@ deploy/           Dockerfile 与 compose
 | GET | `/api/v1/chat/config` | 当前模型与限额 |
 | POST | `/api/v1/chat/stream` | **SSE 问答**：`stage / sql / rows / answer / clarify / error / done` |
 | POST | `/api/v1/chat/feedback` | 人工纠错，先落审计（P3 接入示例库检索） |
+| GET | `/api/v1/audit` | 审计列表：`action` / `result` / `actor` / `q` + 分页 |
+| GET | `/api/v1/audit/actions` | 出现过的动作类型（填筛选下拉框） |
+| GET | `/api/v1/audit/summary` | 近 N 天按动作 × 结果的计数 |
+
+所有响应都带 `X-Request-ID` 头；也可以自己传一个，日志与审计会沿用。
 
 ## Roadmap
 
@@ -304,8 +325,9 @@ deploy/           Dockerfile 与 compose
 |---|---|---|
 | P0 | 账号、数据源、结构快照、审计、部署骨架 | ✅ |
 | P1 | 上下文装配、语义层、两段式生成、只读闸门、自纠错、SSE 对话、20 题评测 | ✅ |
+| P1.5 | 审计层（独立事务 + request id + 控制台）、Alembic 迁移、归属校验收敛、缓存上界 | ✅ |
 | P2 | 变更通道：dry-run 预览、diff 确认、执行、回执、反向 SQL、30 题写评测 | ⏸ 本期不做 |
-| P3 | RBAC、L3 审批、Alembic 迁移、审计看板、限流 | ⏳ |
+| P3 | RBAC、L3 审批、登录限流、审计归档 | ⏳ |
 | P4 | 文档站、多架构镜像、release 流程、英文 README | ⏳ |
 | P5 | iframe 嵌入、OpenAPI 描述、MCP server、图表 | ⏳ |
 

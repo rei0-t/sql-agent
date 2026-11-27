@@ -15,7 +15,7 @@ BACKEND = Path(__file__).resolve().parent.parent / "backend"
 if (BACKEND / "app").is_dir():
     sys.path.insert(0, str(BACKEND))
 
-from app.engine.guard import GuardError, check
+from app.engine.guard import GuardError, check  # noqa: E402
 
 ALLOWED = {"orders", "customers"}
 CASES = [
@@ -38,14 +38,14 @@ def main() -> None:
         try:
             guarded = check(sql, dialect="sqlite", allow_tables=ALLOWED, max_rows=200)
             passed += 1
-            print(f"✅ {title}")
-            print(f"   输入: {sql}")
-            print(f"   放行: {guarded.sql}")
+            print(f"[放行] {title}")
+            print(f"       输入: {sql}")
+            print(f"       输出: {guarded.sql}")
         except GuardError as exc:
             blocked += 1
-            print(f"⛔ {title}")
-            print(f"   输入: {sql}")
-            print(f"   原因: [{exc.code}] {exc.message}")
+            print(f"[拦下] {title}")
+            print(f"       输入: {sql}")
+            print(f"       原因: [{exc.code}] {exc.message}")
         print()
 
     print(f"小结：放行 {passed} 条，拦下 {blocked} 条")

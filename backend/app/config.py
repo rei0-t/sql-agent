@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     schema_max_tables: int = 8
     schema_sample_rows: int = 3
     schema_cache_ttl: int = 60
+    # 缓存条目上限：防止数据源很多时内存一直涨
+    schema_cache_max_entries: int = 64
+    # 是否取精确行数：SQLite 的 COUNT(*) 是全表扫描，大表上会拖慢首次请求
+    schema_row_counts: bool = True
+    # 取行数的总预算（秒）：超时就放弃，只影响「约 N 行」这个提示
+    schema_row_counts_budget: float = 2.0
 
     @property
     def resolved_database_url(self) -> str:

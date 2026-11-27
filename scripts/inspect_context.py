@@ -3,9 +3,9 @@
 这是理解本项目最快的一步：你会看到 BM25 选了哪几张表、列注释长什么样、
 采样数据是什么、业务口径是怎么拼进去的。
 
-用法（在 backend 目录下跑，或指定 PYTHONPATH）：
+用法（在仓库根目录跑）：
 
-    python scripts/inspect_context.py --sqlite ../data/demo/shop.db --question "2026 年第三季度华东区的 GMV 是多少"
+    python scripts/inspect_context.py --sqlite data/demo/shop.db --question "2026 年第三季度华东区的 GMV 是多少"
     python scripts/inspect_context.py --datasource-id 1 --question "退款率是多少"
 
 参数：
@@ -26,10 +26,10 @@ BACKEND = Path(__file__).resolve().parent.parent / "backend"
 if (BACKEND / "app").is_dir():
     sys.path.insert(0, str(BACKEND))
 
-from app.config import settings
-from app.engine.context import build_context
-from app.engine.semantics import load_semantics
-from app.models import Datasource
+from app.config import settings  # noqa: E402
+from app.engine.context import build_context  # noqa: E402
+from app.engine.semantics import load_semantics  # noqa: E402
+from app.models import Datasource  # noqa: E402
 
 
 def _from_meta(datasource_id: int) -> Datasource:
@@ -100,23 +100,24 @@ async def main() -> None:
         settings.schema_max_tables = args.limit
 
     semantics = load_semantics()
-    context = await build_context(
-        ds, "", args.question, semantics_text=semantics.render()
-    )
+    context = await build_context(ds, "", args.question, semantics_text=semantics.render())
 
     print("=" * 72)
     print(f"问题：{args.question}")
     print(f"数据源：{ds.name}（{ds.type}）")
     print(f"库里的表：{len(context.candidate_tables)} 张")
     print(f"BM25 选中：{len(context.tables)} 张 → {', '.join(context.tables)}")
-    print(f"语义层：{'已加载 ' + str(len(semantics.metrics)) + ' 个指标' if not semantics.empty else '未配置（semantics.yaml 不存在或为空）'}")
+    loaded = "未配置（semantics.yaml 不存在或为空）"
+    if not semantics.empty:
+        loaded = f"已加载 {len(semantics.metrics)} 个指标 / {len(semantics.examples)} 条示例"
+    print(f"语义层：{loaded}")
     print("=" * 72)
     print()
     print(context.text)
     print()
     print("=" * 72)
     chars = len(context.text)
-    print(f"上下文长度：{chars} 字符 ≈ {chars // 2} ~ {chars // 3} token（中英混排的粗估）")
+    print(f"上下文长度：{chars} 字符 ≈ {chars // 3} ~ {chars // 2} token（中英混排的粗估）")
     print("提示：这段文本会原样拼进 plan 和 generate 两次调用的 user 消息里。")
 
 

@@ -9,10 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
 from app.apikeys import generate_api_key
-from app.deps import get_current_user, get_session
-from app.models import ApiKey, User, utcnow
+from app.audit import Auditor
+from app.deps import Principal, get_auditor, get_principal, get_session
+from app.models import ApiKey, utcnow
 from app.schemas import ApiKeyCreatedOut, ApiKeyIn, ApiKeyOut
 
 router = APIRouter(prefix="/keys", tags=["keys"])
@@ -31,7 +31,8 @@ def _to_out(row: ApiKey) -> ApiKeyOut:
 
 @router.get("", response_model=list[ApiKeyOut])
 async def list_keys(
-    user: User = Depends(get_current_user),
+    user: Principal = Depends(get_principal),
+    auditor: Auditor = Depends(get_auditor),
     session: AsyncSession = Depends(get_session),
 ) -> list[ApiKeyOut]:
     rows = await session.scalars(
@@ -43,7 +44,8 @@ async def list_keys(
 @router.post("", response_model=ApiKeyCreatedOut, status_code=status.HTTP_201_CREATED)
 async def create_key(
     body: ApiKeyIn,
-    user: User = Depends(get_current_user),
+    user: Principal = Depends(get_principal),
+    auditor: Auditor = Depends(get_auditor),
     session: AsyncSession = Depends(get_session),
 ) -> ApiKeyCreatedOut:
     plaintext, prefix, key_hash = generate_api_key()
@@ -57,12 +59,8 @@ async def create_key(
     await session.commit()
     await session.refresh(row)
 
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="apikey.create",
-        actor_id=user.id,
-        actor_name=user.username,
+    await auditor.log(
+        "apikey.create",
         target_type="api_key",
         target_id=row.id,
         detail={"name": row.name, "prefix": row.prefix},
@@ -73,7 +71,8 @@ async def create_key(
 @router.delete("/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_key(
     key_id: int,
-    user: User = Depends(get_current_user),
+    user: Principal = Depends(get_principal),
+    auditor: Auditor = Depends(get_auditor),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     row = await session.get(ApiKey, key_id)
@@ -82,12 +81,8 @@ async def revoke_key(
     if row.revoked_at is None:
         row.revoked_at = utcnow()
         await session.commit()
-        await audit.record(
-            session,
-            workspace_id=user.workspace_id,
-            action="apikey.revoke",
-            actor_id=user.id,
-            actor_name=user.username,
+        await auditor.log(
+            "apikey.revoke",
             target_type="api_key",
             target_id=row.id,
             detail={"name": row.name, "prefix": row.prefix},

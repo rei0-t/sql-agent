@@ -13,7 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
+from app.audit import Actor
+from app.audit import record as audit_record
 from app.config import settings
 from app.deps import get_current_user, get_session
 from app.models import User, Workspace
@@ -51,11 +52,11 @@ async def login(
 ) -> TokenResponse:
     user = await session.scalar(select(User).where(User.username == body.username))
     if user is None or not verify_password(body.password, user.password_hash):
-        await audit.record(
-            session,
-            workspace_id=user.workspace_id if user else 0,
-            action="auth.login",
-            actor_name=body.username,
+        await audit_record(
+            "auth.login",
+            actor=Actor(workspace_id=user.workspace_id, id=user.id, name=user.username)
+            if user
+            else Actor.anonymous(body.username),
             result="denied",
             detail={"reason": "invalid_credentials"},
         )
@@ -64,12 +65,9 @@ async def login(
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "账号已被禁用")
 
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="auth.login",
-        actor_id=user.id,
-        actor_name=user.username,
+    await audit_record(
+        "auth.login",
+        actor=Actor.of(user),
         target_type="user",
         target_id=user.id,
     )
@@ -117,12 +115,9 @@ async def register(
         raise HTTPException(status.HTTP_409_CONFLICT, "用户名已被占用") from None
     await session.refresh(user)
 
-    await audit.record(
-        session,
-        workspace_id=workspace.id,
-        action="auth.register",
-        actor_id=user.id,
-        actor_name=user.username,
+    await audit_record(
+        "auth.register",
+        actor=Actor.of(user),
         target_type="user",
         target_id=user.id,
         detail={"workspace_id": workspace.id},

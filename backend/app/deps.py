@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.apikeys import hash_api_key, looks_like_api_key
+from app.audit import Actor, Auditor
 from app.config import settings
 from app.db import SessionLocal
 from app.engine.llm import ChatModel, OpenAICompatibleModel, get_default_model
@@ -116,6 +117,11 @@ async def get_principal(
         actor_name=user.username,
         via="session",
     )
+
+
+async def get_auditor(principal: Principal = Depends(get_principal)) -> Auditor:
+    """绑定当前调用者的审计写入器（JWT 与 API Key 都适用）。"""
+    return Auditor(actor=Actor.of(principal))
 
 
 async def build_model(session: AsyncSession, workspace_id: int) -> ChatModel:

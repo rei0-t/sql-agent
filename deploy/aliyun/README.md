@@ -113,6 +113,8 @@ bash deploy/aliyun/backup.sh
 
 # 升级并回滚
 git pull
+docker compose -f deploy/aliyun/docker-compose.prod.yaml --env-file .env.prod \
+  exec app python scripts/migrate.py            # 先跑迁移（幂等，老库会自动 stamp 基线）
 IMG=sql-agent:$(date +%Y%m%d) docker compose ... up -d --build   # 或者先打 tag 再切 IMAGE_TAG
 ```
 
@@ -130,9 +132,9 @@ curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/api/v1/datasources
 ## 9. 这个部署没做的事
 
 - **没有多副本 / 负载均衡**：单机够用；要横向扩时元数据库换 RDS，并把语义层与审计做成共享存储
-- **没有 Alembic 迁移**：升级前先 `backup.sh`
+- **迁移要手动跑**：`python scripts/migrate.py`（已内置，升级前跑一次；`backup.sh` 仍然建议先做）
 - **没内置限流**：公网暴露时在 Nginx 加 `limit_req_zone`，或套阿里云 WAF
-- **审计日志会一直长**：目前没有清理任务，量大时加定时归档
+- **审计日志会一直长**：目前没有清理任务，量大时加定时归档（接口是只读的，删归档走 SQL）
 
 ## 常见问题
 

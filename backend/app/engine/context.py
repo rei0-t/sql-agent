@@ -8,10 +8,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
-import time
 from dataclasses import dataclass, field
 
+from app.cache import TTLCache
 from app.config import settings
 from app.engine.execute import run_select
 from app.introspect import introspect
@@ -138,7 +139,10 @@ def rank_tables(question: str, tables: list[TableContext], top_k: int) -> list[T
 # ---------------- 缓存 ----------------
 
 
-_CACHE: dict[str, tuple[float, list[TableContext]]] = {}
+# 有上限的 TTL 缓存：数据源多了不会无限涨；换进程各存一份，靠 ttl 收敛
+_CACHE: TTLCache[list[TableContext]] = TTLCache(
+    maxsize=settings.schema_cache_max_entries, ttl=settings.schema_cache_ttl
+)
 
 
 def _cache_key(ds: Datasource) -> str:
@@ -147,10 +151,9 @@ def _cache_key(ds: Datasource) -> str:
 
 async def _load_tables(ds: Datasource, password: str) -> list[TableContext]:
     key = _cache_key(ds)
-    now = time.time()
     cached = _CACHE.get(key)
-    if cached and now - cached[0] < settings.schema_cache_ttl:
-        return cached[1]
+    if cached is not None:
+        return cached
 
     schema = await introspect(ds, password)
     tables = [
@@ -170,7 +173,7 @@ async def _load_tables(ds: Datasource, password: str) -> list[TableContext]:
         )
         for table in schema.tables
     ]
-    _CACHE[key] = (now, tables)
+    _CACHE.set(key, tables)
     return tables
 
 
@@ -178,9 +181,7 @@ def invalidate_cache(ds_id: int | None = None) -> None:
     if ds_id is None:
         _CACHE.clear()
         return
-    for key in list(_CACHE):
-        if key.startswith(f"{ds_id}:"):
-            _CACHE.pop(key, None)
+    _CACHE.clear(f"{ds_id}:")
 
 
 # ---------------- 渲染 ----------------
@@ -223,9 +224,10 @@ async def build_context(
     tables = await _load_tables(ds, password)
     picked = rank_tables(question, tables, settings.schema_max_tables)
 
-    for table in picked[: settings.schema_max_tables]:
+    async def sample(table: TableContext) -> None:
+        """采样失败不影响主流程：模型看不到真实值形态，但至少还能生成 SQL。"""
         if table.sample:
-            continue
+            return
         try:
             result = await run_select(
                 ds,
@@ -235,8 +237,11 @@ async def build_context(
                 timeout=settings.query_timeout,
             )
             table.sample = result.rows
-        except Exception:  # noqa: BLE001 - 采样失败不影响主流程
+        except Exception:  # noqa: BLE001
             table.sample = []
+
+    # 并发采样：最多 8 次查询，串行时最坏要 8×timeout
+    await asyncio.gather(*(sample(table) for table in picked[: settings.schema_max_tables]))
 
     body = "\n\n".join(render_table(table) for table in picked)
     parts = [f"## 可用的表（共 {len(picked)} 张，已按问题相关性筛选）", body]

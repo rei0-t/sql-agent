@@ -43,6 +43,11 @@ class Answer:
     def ok(self) -> bool:
         return self.error is None and self.sql is not None
 
+    @property
+    def tokens(self) -> int:
+        """给接口层用：让 Answer 能直接映射成 QueryOut（from_attributes）。"""
+        return self.usage.total
+
 
 async def _noop(_: str, __: dict) -> None:
     return None

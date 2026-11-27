@@ -13,7 +13,7 @@ const auth = useAuthStore();
 const nav = [
   { name: 'datasources', label: '数据源', badge: '' },
   { name: 'chat', label: '对话', badge: '' },
-  { name: 'audit', label: '审计', badge: 'P1' },
+  { name: 'audit', label: '审计', badge: '' },
   { name: 'settings', label: '设置', badge: '' },
 ] as const;
 

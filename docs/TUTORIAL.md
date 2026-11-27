@@ -651,6 +651,14 @@ FROM audit_logs WHERE action='chat.read' ORDER BY id DESC LIMIT 20;
 
 （PostgreSQL 用 `detail->>'question'`。）
 
+**更方便的是直接开「审计」页**：按动作/结果/关键字筛选，点一行看完整 detail——SQL、耗时、token、重试次数、request id 都在里面。它的数据源就是上面这张表，只是省掉了写 SQL。
+
+几条实现上的约定，读代码时可以留意：
+
+- **独立事务**：`audit.record()` 自己开 session 提交，所以业务回滚了审计还在（登录失败也能查到）
+- **自动带 request id**：中间件生成 `X-Request-ID`，响应头回传，审计 detail 里也有一份，前端截图能直接对上后端日志
+- **失败不抛**：审计写挂了只记 warning，绝不让业务请求失败
+
 **看什么**：`attempts > 1` 的题目就是模型的弱点，`error` 非空的直接就是失败样本。把这些攒起来，就是你的下一版评测集。
 
 ---

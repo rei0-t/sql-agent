@@ -2,16 +2,40 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import inspect
 
+from app.config import settings
 from app.dialects import get_dialect
 from app.models import Datasource
 from app.schemas import ColumnOut, SchemaOut, TableOut
 
+logger = logging.getLogger(__name__)
+
 MAX_TABLES = 200
+
+
+async def _safe_row_counts(dialect, conn, tables: list[str]) -> dict[str, int]:
+    """取行数是「锦上添花」：SQLite 会逐表 COUNT(*)（全表扫描），大表上能到秒级。
+
+    所以给一个总预算，超时就放弃——行数只是给模型的量级提示，不值得阻塞首屏。
+    """
+    if not settings.schema_row_counts:
+        return {}
+    try:
+        return await asyncio.wait_for(
+            dialect.row_counts(conn, tables), timeout=settings.schema_row_counts_budget
+        )
+    except TimeoutError:
+        logger.info("取行数超过 %.1fs，已跳过（数据源 %s）", settings.schema_row_counts_budget, dialect.name)
+        return {}
+    except Exception:  # noqa: BLE001 - 统计信息取不到不影响主流程
+        logger.warning("取行数失败（数据源 %s）", dialect.name, exc_info=True)
+        return {}
 
 
 def _collect(sync_conn: Any) -> list[tuple[str, list[dict[str, Any]], list[str]]]:
@@ -36,7 +60,7 @@ async def introspect(ds: Datasource, password: str) -> SchemaOut:
     try:
         async with engine.connect() as conn:
             raw = await conn.run_sync(_collect)
-            counts = await dialect.row_counts(conn, [name for name, _, _ in raw])
+            counts = await _safe_row_counts(dialect, conn, [name for name, _, _ in raw])
     finally:
         await engine.dispose()
 

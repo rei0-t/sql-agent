@@ -1,6 +1,7 @@
 """数据源管理：增删查、连通性测试、结构快照。
 
 注意：凭证只进不出。接口永远不会返回口令，只返回 ``has_write_credential``。
+归属校验统一走 ``store.owned_datasource``，不要在路由里重复实现。
 """
 
 from __future__ import annotations
@@ -9,13 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import audit
-from app.deps import Principal, get_principal, get_session
+from app.audit import Auditor
+from app.deps import Principal, get_auditor, get_principal, get_session
 from app.dialects import get_dialect, test_connection
 from app.introspect import introspect
 from app.models import Datasource, utcnow
 from app.schemas import DatasourceCreate, DatasourceOut, SchemaOut, TestResult
 from app.security import get_secret_box
+from app.store import owned_datasource, read_password
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
 
@@ -38,19 +40,6 @@ def _to_out(ds: Datasource) -> DatasourceOut:
     )
 
 
-async def _get_owned(session: AsyncSession, user: Principal, datasource_id: int) -> Datasource:
-    ds = await session.get(Datasource, datasource_id)
-    if ds is None or ds.workspace_id != user.workspace_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "数据源不存在")
-    return ds
-
-
-def _read_password(ds: Datasource) -> str:
-    if not ds.password_enc:
-        return ""
-    return get_secret_box().decrypt(ds.password_enc)
-
-
 @router.get("", response_model=list[DatasourceOut])
 async def list_datasources(
     user: Principal = Depends(get_principal),
@@ -69,6 +58,7 @@ async def create_datasource(
     body: DatasourceCreate,
     user: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
+    auditor: Auditor = Depends(get_auditor),
 ) -> DatasourceOut:
     box = get_secret_box()
     dialect = get_dialect(body.type)
@@ -90,12 +80,8 @@ async def create_datasource(
     await session.commit()
     await session.refresh(ds)
 
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="datasource.create",
-        actor_id=user.id,
-        actor_name=user.username,
+    await auditor.log(
+        "datasource.create",
         target_type="datasource",
         target_id=ds.id,
         detail={
@@ -114,17 +100,15 @@ async def delete_datasource(
     datasource_id: int,
     user: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
+    auditor: Auditor = Depends(get_auditor),
 ) -> None:
-    ds = await _get_owned(session, user, datasource_id)
+    ds = await owned_datasource(session, user.workspace_id, datasource_id)
     name, ds_type = ds.name, ds.type
     await session.delete(ds)
     await session.commit()
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="datasource.delete",
-        actor_id=user.id,
-        actor_name=user.username,
+
+    await auditor.log(
+        "datasource.delete",
         target_type="datasource",
         target_id=datasource_id,
         detail={"name": name, "type": ds_type},
@@ -136,20 +120,17 @@ async def test_datasource(
     datasource_id: int,
     user: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
+    auditor: Auditor = Depends(get_auditor),
 ) -> TestResult:
-    ds = await _get_owned(session, user, datasource_id)
-    result = await test_connection(ds, _read_password(ds))
+    ds = await owned_datasource(session, user.workspace_id, datasource_id)
+    result = await test_connection(ds, read_password(ds))
 
     ds.last_check_ok = result.ok
     ds.last_checked_at = utcnow()
     await session.commit()
 
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="datasource.test",
-        actor_id=user.id,
-        actor_name=user.username,
+    await auditor.log(
+        "datasource.test",
         target_type="datasource",
         target_id=ds.id,
         result="ok" if result.ok else "error",
@@ -163,17 +144,14 @@ async def get_schema(
     datasource_id: int,
     user: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
+    auditor: Auditor = Depends(get_auditor),
 ) -> SchemaOut:
-    ds = await _get_owned(session, user, datasource_id)
+    ds = await owned_datasource(session, user.workspace_id, datasource_id)
     try:
-        schema = await introspect(ds, _read_password(ds))
+        schema = await introspect(ds, read_password(ds))
     except Exception as exc:  # noqa: BLE001 - 驱动异常统一转成 400
-        await audit.record(
-            session,
-            workspace_id=user.workspace_id,
-            action="datasource.schema",
-            actor_id=user.id,
-            actor_name=user.username,
+        await auditor.log(
+            "datasource.schema",
             target_type="datasource",
             target_id=ds.id,
             result="error",
@@ -181,12 +159,8 @@ async def get_schema(
         )
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"读取表结构失败：{exc}") from exc
 
-    await audit.record(
-        session,
-        workspace_id=user.workspace_id,
-        action="datasource.schema",
-        actor_id=user.id,
-        actor_name=user.username,
+    await auditor.log(
+        "datasource.schema",
         target_type="datasource",
         target_id=ds.id,
         detail={"tables": len(schema.tables)},

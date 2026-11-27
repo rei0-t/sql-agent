@@ -229,3 +229,30 @@ class QueryOut(BaseModel):
     model: str = ""
     error: str | None = None
     clarification: str | None = None
+
+
+# ---------------- 审计查询 ----------------
+
+
+class AuditEntryOut(BaseModel):
+    id: int
+    created_at: datetime
+    actor_name: str
+    action: str
+    target_type: str | None = None
+    target_id: str | None = None
+    result: str
+    detail: dict | None = None
+
+
+class AuditPageOut(BaseModel):
+    items: list[AuditEntryOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class AuditBucketOut(BaseModel):
+    action: str
+    result: str
+    count: int
