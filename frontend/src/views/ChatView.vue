@@ -859,8 +859,11 @@ function formatCell(value: unknown): string {
 
 .sql__body pre {
   margin: 0;
-  padding: 14px 16px;
-  overflow-x: auto;
+  /* 右边留出「复制」按钮的位置，否则长 SQL 会滑到按钮底下（截图里很难看） */
+  padding: 14px 84px 14px 16px;
+  /* 长 SQL 换行显示，比横向滚动更容易看懂，也便于截图与移动端阅读 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.7;

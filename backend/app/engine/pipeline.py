@@ -14,6 +14,7 @@ from app.engine.context import build_context
 from app.engine.execute import ExecutionError, run_select
 from app.engine.generate import SQLDraft, make_plan, summarize, write_sql
 from app.engine.guard import GuardError, check
+from app.engine.intent import detect_mutation, refusal
 from app.engine.llm import ChatModel, LLMError, Usage
 from app.engine.semantics import load_semantics
 from app.models import Datasource
@@ -74,6 +75,15 @@ async def answer_question(
     if answer.injection_flags:
         await emit("stage", {"stage": "context", "notice": "question_flagged"})
 
+    # 写意图必须在生成 SQL 之前拦下：只读系统最危险的失败不是"做不了"，而是"假装做了"。
+    # 关键词判断零成本、可解释；模型在计划阶段判断的 mutation 作为第二道（见下方 plan.mutation）。
+    if (verb := detect_mutation(question)) is not None:
+        answer.summary = refusal(verb)
+        answer.clarification = answer.summary
+        answer.elapsed_ms = int((time.perf_counter() - started) * 1000)
+        await emit("clarify", {"question": answer.summary})
+        return answer
+
     # 语义层按工作空间隔离：数据源属于哪个空间，就加载哪个空间的口径
     semantics = load_semantics(ds.workspace_id)
     await emit("stage", {"stage": "context"})
@@ -94,6 +104,14 @@ async def answer_question(
         answer.error = str(exc)
         answer.elapsed_ms = int((time.perf_counter() - started) * 1000)
         answer.usage = usage
+        return answer
+
+    if plan.mutation:
+        answer.summary = refusal("修改数据")
+        answer.clarification = answer.summary
+        answer.elapsed_ms = int((time.perf_counter() - started) * 1000)
+        answer.usage = usage
+        await emit("clarify", {"question": answer.summary})
         return answer
 
     if plan.clarification:
