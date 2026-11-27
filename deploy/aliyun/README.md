@@ -66,6 +66,10 @@ vim .env.prod                            # 再填 SQLAGENT_ADMIN_PASSWORD、POST
 
 cp docs/semantics.example.yaml deploy/aliyun/data/semantics.yaml
 
+# 多租户（开放注册）时，每个工作空间一份，互不可见：
+# mkdir -p deploy/aliyun/data/semantics.d
+# cp docs/semantics.example.yaml deploy/aliyun/data/semantics.d/1.yaml
+
 docker compose -f deploy/aliyun/docker-compose.prod.yaml --env-file .env.prod up -d --build
 curl -s localhost:8080/api/v1/health     # {"status":"ok","version":"0.1.0","database":"ok"}
 ```

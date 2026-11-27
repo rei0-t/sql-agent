@@ -99,7 +99,7 @@ async def main() -> None:
     if args.limit:
         settings.schema_max_tables = args.limit
 
-    semantics = load_semantics()
+    semantics = load_semantics(ds.workspace_id if ds.workspace_id else None)
     context = await build_context(ds, "", args.question, semantics_text=semantics.render())
 
     print("=" * 72)

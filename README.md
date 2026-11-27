@@ -100,7 +100,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 | 项 | 结果 |
 |---|---|
-| 后端测试 | **129 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
+| 后端测试 | **136 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、语义层隔离 7 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
 | 端到端 | 登录 → 建源 → 测试 → 取结构：5 张表 / 20,000 订单 / 67 ms |
 | **MySQL 全链路** | MySQL 8.1：连接 5ms → 5 张表 / 8,000 订单 / 16,133 明细 → 「2026 Q3 华东 GMV」= `12,628,663.50`（与手算**逐位一致**）→ 品类 Top3 三个数字全对 |
 | 只读边界 | 用 `SELECT` only 的账号：查询正常；`INSERT` 被 MySQL 拒绝（`ERROR 1142`） |
@@ -228,9 +228,23 @@ curl -s http://127.0.0.1:8080/api/v1/query \
 ### 配置语义层（决定准不准的关键）
 
 ```bash
+# 1) 单租户 / 只有一个团队：一份全局文件就够
 cp docs/semantics.example.yaml backend/data/semantics.yaml
-# 或者用环境变量指到任意位置：SQLAGENT_SEMANTICS_PATH=/etc/sql-agent/semantics.yaml
+#    也可以用环境变量指到任意位置：SQLAGENT_SEMANTICS_PATH=/etc/sql-agent/semantics.yaml
+
+# 2) 多租户（开放注册）：每个工作空间一份，互不可见
+mkdir -p backend/data/semantics.d
+cp docs/semantics.example.yaml backend/data/semantics.d/1.yaml
 ```
+
+**优先级**：`data/semantics.d/{workspace_id}.yaml` > 全局文件。
+专属文件存在就用它（**独占**，不与全局叠加）；不存在才回退到全局。
+
+为什么这样设计：不做隔离的话，A 客户的指标口径和示例 SQL 会进到 B 客户的 prompt 里——
+那不是体验问题，是跨租户泄露。专属文件写坏时**不会**悄悄回退到全局，
+而是记一条 warning 并按空语义处理，免得"改了没生效"说不清。
+
+工作空间编号就是 `GET /api/v1/auth/me` 返回的 `workspace_id`，来自数据库，不接受请求参数。
 
 三个部分，缺一不可：
 

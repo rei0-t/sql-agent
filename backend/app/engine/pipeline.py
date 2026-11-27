@@ -74,7 +74,8 @@ async def answer_question(
     if answer.injection_flags:
         await emit("stage", {"stage": "context", "notice": "question_flagged"})
 
-    semantics = load_semantics()
+    # 语义层按工作空间隔离：数据源属于哪个空间，就加载哪个空间的口径
+    semantics = load_semantics(ds.workspace_id)
     await emit("stage", {"stage": "context"})
     try:
         context = await build_context(ds, password, question, semantics_text=semantics.render())
