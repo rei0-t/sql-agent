@@ -34,6 +34,10 @@ COPY backend/migrations ./migrations
 COPY backend/app ./app
 RUN pip install -i "$PIP_INDEX_URL" --trusted-host "$PIP_TRUSTED_HOST" .
 
+# 构建期就验证"只有运行时依赖也能 import 起来"。
+# 少了这一步，漏依赖要等到容器启动才炸（httpx 漏在 dev 里时就踩过）。
+RUN python -c "import app.main"
+
 # 运维脚本放在 /app/scripts（与仓库布局一致，_bootstrap 会自动找到 /app/backend）
 COPY scripts /app/scripts
 COPY --from=web /web/dist /app/frontend/dist
