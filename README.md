@@ -292,13 +292,32 @@ cp docs/semantics.example.yaml backend/data/semantics.d/1.yaml
 
 ### 换模型
 
-任意 OpenAI 兼容端点都能用（通义千问 / DeepSeek / vLLM / Ollama）：
+代码里**没有模型白名单**：只调 `POST {base_url}/chat/completions`，模型名是透传给服务商的字符串。
+所以任何 OpenAI 兼容端点都能用：
+
+| 服务商 | `SQLAGENT_LLM_BASE_URL` | 模型名示例 |
+|---|---|---|
+| 阿里百炼（默认） | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-flash` / `qwen-plus` / `qwen-max` |
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` / `deepseek-reasoner` |
+| 月之暗面 | `https://api.moonshot.cn/v1` | `kimi-k2-0905-preview`（以官方文档为准） |
+| 智谱 | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-plus` / `glm-4-flash` |
+| 硅基流动 | `https://api.siliconflow.cn/v1` | `Qwen/Qwen2.5-72B-Instruct` 等 |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| 本地 Ollama / vLLM | `http://127.0.0.1:11434/v1` | `qwen2.5:7b` 等 |
 
 ```bash
-SQLAGENT_LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-SQLAGENT_LLM_MODEL=qwen-flash
+SQLAGENT_LLM_BASE_URL=https://api.deepseek.com/v1
+SQLAGENT_LLM_MODEL=deepseek-chat
 SQLAGENT_LLM_API_KEY=sk-...
 ```
+
+两条注意：
+
+- **本地端点**（Ollama / vLLM）默认会被 SSRF 防护拦下，需要 `SQLAGENT_LLM_ALLOW_PRIVATE_HOSTS=true`
+- **每个工作空间也可以在界面里各配各的**（BYOK）：站点放的公共 Key 只给没配的人用
+
+> 准确性只在百炼的 `qwen-plus` / `qwen-flash` 上实测过（见「评测」一节）。换别家需要自己跑一遍
+> `evals/run_eval.py` 对比——方言细节（日期函数、`LIMIT` 写法）和中文口径理解差异不小。
 
 ## 想读懂它怎么实现的
 
