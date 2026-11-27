@@ -5,6 +5,9 @@
 [![CI](https://github.com/rei0-t/sql-agent/actions/workflows/ci.yml/badge.svg)](../../actions)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+> **在线体验：<https://sqlagent.help/>**
+> 注册即送一个只读演示库（20k 订单），5 次免费问答（走站点公共 Key）；用完可以在「设置」里填自己的 Key，次数不限。
+
 > 当前状态：**P0（地基）+ P1（只读问答）已完成**。变更通道（增删改）**本期不实现**，后端没有对应接口与执行路径，前端在对话页顶部有一行明确提示。下面写的「已完成」都是跑通并有测试覆盖的。
 
 ## 为什么再做一个 text-to-SQL
@@ -44,6 +47,8 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 对话页按主流对话产品的习惯组织：左侧是历史对话（存在浏览器本地，不上传），中间是对话流，
 底部是圆角输入框；回答里默认只给你**结论**，SQL 和结果表按需展开。
+
+> 截图就是线上实例 <https://sqlagent.help/> 的界面，不是设计稿。
 
 ## 已完成
 
@@ -110,8 +115,9 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 | 项 | 结果 |
 |---|---|
-| 后端测试 | **152 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、语义层隔离 7 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
+| 后端测试 | **179 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、语义层隔离 7 例、提问额度 12 例、上传 14 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
 | 端到端 | 登录 → 建源 → 测试 → 取结构：5 张表 / 20,000 订单 / 67 ms |
+| **线上环境** | `https://sqlagent.help/`：Docker + Nginx + Let's Encrypt（TLS 1.3，HSTS，cookie `Secure`）；注册 → 示例库 → 5 次额度 → 第 6 次 429，已从外网实测 |
 | **MySQL 全链路** | MySQL 8.1：连接 5ms → 5 张表 / 8,000 订单 / 16,133 明细 → 「2026 Q3 华东 GMV」= `12,628,663.50`（与手算**逐位一致**）→ 品类 Top3 三个数字全对 |
 | 只读边界 | 用 `SELECT` only 的账号：查询正常；`INSERT` 被 MySQL 拒绝（`ERROR 1142`） |
 | 真实问答 | 「2026 Q3 华东区 GMV」→ `15,579,548.46`，与手算一致，11.6s / 4.3k token |
@@ -121,8 +127,8 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 | 限流 | 同一用户名 5 次失败后第 6 次 429（带 `Retry-After`）；成功登录清零；关开关即恢复 |
 | 迁移 | 空库 `upgrade` 建 6 张表；老库自动 stamp；`alembic check` 与模型零差异 |
 | 评测 | 20 题演示集，`qwen-plus` / `qwen-flash` 各跑一遍，见下方「评测」一节 |
-| 前端构建 | `vue-tsc --noEmit` 0 error + `vite build` 成功，产物 gzip 71 KB |
-| 未验证 | **PostgreSQL**（本机无实例，连握手都没跑过）、**Docker 镜像**（本机无 Docker，从未构建）、任意 schema 的准确率（见下） |
+| 前端构建 | `vue-tsc --noEmit` 0 error + `vite build` 成功，产物 gzip 73 KB |
+| 未验证 | **PostgreSQL 作为数据源**（应用自己的元数据库在线上就是 PG，但「连别人的 PG 查数」没有端到端用例）、任意 schema 的准确率（见下） |
 
 ## 评测
 
@@ -200,6 +206,12 @@ sudo bash deploy/aliyun/install.sh
 
 - [deploy/README.md](deploy/README.md)：通用部署、HTTPS、备份、安全清单
 - [deploy/aliyun/README.md](deploy/aliyun/README.md)：**阿里云 ECS 一步步来**（安全组、镜像加速、备案、Nginx + SSE、运维脚本）
+
+**上 HTTPS 只要一条命令**（自动申请 Let's Encrypt 证书、换 Nginx 配置、打开 `Secure` cookie、自检）：
+
+```bash
+sudo bash deploy/aliyun/enable-https.sh 你的域名 你的邮箱
+```
 
 ### 本地开发
 
