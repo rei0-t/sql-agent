@@ -21,7 +21,9 @@ jobs:
       - name: Install
         run: pip install -e ".[dev]"
       - name: Lint
-        run: ruff check .
+        run: |
+          ruff check .
+          ruff check ../scripts
       - name: Test
         run: pytest -q
 
@@ -43,5 +45,7 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install
         run: pnpm install --no-frozen-lockfile
+      - name: Typecheck
+        run: pnpm type-check
       - name: Build
         run: pnpm build

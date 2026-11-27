@@ -78,20 +78,31 @@ curl -s localhost:8080/api/v1/health     # {"status":"ok","version":"0.1.0","dat
 
 ## 5. 配 Nginx + HTTPS
 
+**两种情况，先看你在哪一步：**
+
 ```bash
+# A. 还没有域名，先用 IP 访问（install.sh 已经自动做了这一步）
+sudo cp deploy/aliyun/nginx-http.conf /etc/nginx/conf.d/sql-agent.conf
+sudo nginx -t && sudo systemctl reload nginx
+# 现在 http://<公网IP>/ 就能打开
+```
+
+```bash
+# B. 有域名了，换 HTTPS
 # 1) 申请证书：阿里云「数字证书管理服务」→ 免费证书（DV）→ 下载 Nginx 格式
 sudo mkdir -p /etc/nginx/certs
 sudo cp 你的证书.pem /etc/nginx/certs/sql-agent.pem
 sudo cp 你的私钥.key /etc/nginx/certs/sql-agent.key
 
-# 2) 放配置
-sudo cp deploy/aliyun/nginx-sql-agent.conf /etc/nginx/conf.d/sql-agent.conf
-sudo vim /etc/nginx/conf.d/sql-agent.conf     # 改 server_name 与证书路径
+# 2) 换成 TLS 配置
+sudo cp deploy/aliyun/nginx-tls.conf /etc/nginx/conf.d/sql-agent.conf
+sudo vim /etc/nginx/conf.d/sql-agent.conf     # 改 server_name 与证书文件名
 sudo nginx -t && sudo systemctl reload nginx
-```
 
-**没有域名怎么办**：跳过这一步，先把安全组的 8080 对自己 IP 放开，直接
-`http://<公网IP>:8080` 用；或者用 Nginx 自签证书 + IP 访问（浏览器会报不安全）。
+# 3) 打开 Secure cookie（否则浏览器在 https 下不发送会话 cookie）
+sed -i 's/^SQLAGENT_COOKIE_SECURE=.*/SQLAGENT_COOKIE_SECURE=true/' .env.prod
+docker compose -f deploy/aliyun/docker-compose.prod.yaml --env-file .env.prod up -d
+```
 
 > ⚠️ SSE 一定要走配置里那段 `location = /api/v1/chat/stream`（关了 `proxy_buffering`）。
 > 用别的反代（Caddy/Cloudflare）也要关缓冲，否则前端要等整段回答生成完才一次性显示。

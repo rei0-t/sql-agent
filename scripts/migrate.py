@@ -13,13 +13,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
-from pathlib import Path
 
-BACKEND = Path(__file__).resolve().parent.parent / "backend"
-if (BACKEND / "app").is_dir():
-    sys.path.insert(0, str(BACKEND))
-    sys.path.insert(0, str(BACKEND / "migrations"))
+from _bootstrap import ensure_backend
+
+BACKEND = ensure_backend()
 
 from alembic import command
 from alembic.config import Config

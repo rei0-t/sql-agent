@@ -8,12 +8,9 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from _bootstrap import ensure_backend
 
-BACKEND = Path(__file__).resolve().parent.parent / "backend"
-if (BACKEND / "app").is_dir():
-    sys.path.insert(0, str(BACKEND))
+BACKEND = ensure_backend()
 
 from app.engine.guard import GuardError, check
 

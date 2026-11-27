@@ -180,7 +180,7 @@ bash deploy/aliyun/backup.sh
 | 登录提示密码错误 | `.env.prod` 里的密码和你输入的不一致 | `cat .env.prod` 看一下 |
 | 提问报「未配置模型密钥」 | 设置里没保存成功 | 回设置页点「测试连接」，成功后再「保存」 |
 | 别人注册后问问题花的是我的钱 | 你在 `.env.prod` 里放了公共 API Key | 删掉 `SQLAGENT_LLM_API_KEY` 那一行，让用户各填各的；或直接关注册 |
-| 提问一直转圈不出字 | 直接 IP 访问不会有这问题；配了 Nginx 才会 | 见 `nginx-sql-agent.conf` 里 SSE 那段 |
+| 提问一直转圈不出字 | 直接 IP 访问不会有这问题；配了 Nginx 才会 | 见 `nginx-http.conf` 里 SSE 那段（`proxy_buffering off`） |
 
 ---
 

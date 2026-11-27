@@ -2,7 +2,7 @@
 
 > 用中文提问，自动生成 SQL 并在**只读连接**上执行，把结论、SQL 和原始结果一起交给你。
 
-[![CI](https://github.com/<your-org>/sql-agent/actions/workflows/ci.yml/badge.svg)](../../actions)
+[![CI](https://github.com/rei0-t/sql-agent/actions/workflows/ci.yml/badge.svg)](../../actions)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 > 当前状态：**P0（地基）+ P1（只读问答）已完成**。变更通道（增删改）**本期不实现**，后端没有对应接口与执行路径，前端在对话页顶部有一行明确提示。下面写的「已完成」都是跑通并有测试覆盖的。

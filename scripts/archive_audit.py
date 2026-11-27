@@ -19,13 +19,12 @@ import argparse
 import asyncio
 import gzip
 import json
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-BACKEND = Path(__file__).resolve().parent.parent / "backend"
-if (BACKEND / "app").is_dir():
-    sys.path.insert(0, str(BACKEND))
+from _bootstrap import ensure_backend
+
+BACKEND = ensure_backend()
 
 from app.config import settings
 from app.models import AuditLog

@@ -30,6 +30,10 @@ services:
       SQLAGENT_LLM_BASE_URL: ${SQLAGENT_LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       SQLAGENT_LLM_MODEL: ${SQLAGENT_LLM_MODEL:-qwen-plus}
       SQLAGENT_LLM_API_KEY: ${SQLAGENT_LLM_API_KEY:-}
+      # ---- 上线开关（默认先能跑通；接了 HTTPS 再把 COOKIE_SECURE 打开）----
+      SQLAGENT_ALLOW_REGISTRATION: ${SQLAGENT_ALLOW_REGISTRATION:-true}
+      SQLAGENT_COOKIE_SECURE: ${SQLAGENT_COOKIE_SECURE:-false}
+      SQLAGENT_STRICT_TABLE_ALLOWLIST: ${SQLAGENT_STRICT_TABLE_ALLOWLIST:-false}
     volumes:
       - ./data:/app/backend/data
     depends_on:
