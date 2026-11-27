@@ -58,11 +58,11 @@ def offline_dns(monkeypatch):
 @pytest.fixture(autouse=True)
 def clean_rate_limits():
     """每个用例都从零开始计失败次数，避免互相干扰。"""
-    from app.api.auth import reset_login_limits
+    from app.api.auth import reset_limits
 
-    reset_login_limits()
+    reset_limits()
     yield
-    reset_login_limits()
+    reset_limits()
 
 
 @pytest.fixture(scope="session")

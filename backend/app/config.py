@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     login_max_failures_per_user: int = 5
     login_failure_window: int = 300
 
+    # ---- 注册限流 ----
+    register_ratelimit_enabled: bool = True
+    register_max_per_ip: int = 5
+    register_window: int = 3600
+
+    # ---- 注入防护 ----
+    # 严格表白名单：只允许模型"看过"的表（会误杀合法的跨表查询，敏感库再开）
+    strict_table_allowlist: bool = False
+
     # ---- 只读通道限额 ----
     read_max_rows: int = 200
     max_repair: int = 3

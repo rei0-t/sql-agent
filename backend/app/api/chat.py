@@ -87,6 +87,8 @@ async def chat_stream(
                         "model": answer.model,
                         "error": answer.error,
                         "clarification": answer.clarification,
+                        # 问题里命中了可疑话术：不拦截，但让调用方知道
+                        "injection_flags": answer.injection_flags,
                     },
                 )
             )
@@ -96,19 +98,23 @@ async def chat_stream(
             await queue.put(_sse("error", {"detail": str(exc)[:300]}))
             await queue.put(_sse("done", {"ok": False, "error": "内部错误"}))
         finally:
+            detail = {
+                "question": body.question[:500],
+                "sql": (answer.sql or "")[:2000] if answer else "",
+                "attempts": answer.attempts if answer else 0,
+                "tokens": answer.usage.total if answer else 0,
+                "elapsed_ms": answer.elapsed_ms if answer else 0,
+                "error": (answer.error or "")[:300] if answer else "",
+            }
+            # 只对可疑问题加这个字段，正常问答的 detail 保持干净
+            if answer and answer.injection_flags:
+                detail["injection_flags"] = answer.injection_flags
             await auditor.log(
                 "chat.read",
                 target_type="datasource",
                 target_id=ds.id,
                 result="ok" if (answer and answer.ok) else "error",
-                detail={
-                    "question": body.question[:500],
-                    "sql": (answer.sql or "")[:2000] if answer else "",
-                    "attempts": answer.attempts if answer else 0,
-                    "tokens": answer.usage.total if answer else 0,
-                    "elapsed_ms": answer.elapsed_ms if answer else 0,
-                    "error": (answer.error or "")[:300] if answer else "",
-                },
+                detail=detail,
             )
             await queue.put(None)
 

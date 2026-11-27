@@ -17,6 +17,7 @@ from app.engine.guard import GuardError, check
 from app.engine.llm import ChatModel, LLMError, Usage
 from app.engine.semantics import load_semantics
 from app.models import Datasource
+from app.safety import detect_injection
 
 Emit = Callable[[str, dict], Awaitable[None]]
 
@@ -38,6 +39,8 @@ class Answer:
     usage: Usage = field(default_factory=Usage)
     error: str | None = None
     clarification: str | None = None
+    # 用户问题里命中的可疑话术（只记录，不拦截）
+    injection_flags: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -65,6 +68,11 @@ async def answer_question(
     started = time.perf_counter()
     usage = Usage()
     answer = Answer(question=question, model=getattr(model, "name", ""))
+
+    # 只记录不拦截：命中话术不代表一定越权，误杀正常问题更糟。
+    answer.injection_flags = detect_injection(question)
+    if answer.injection_flags:
+        await emit("stage", {"stage": "context", "notice": "question_flagged"})
 
     semantics = load_semantics()
     await emit("stage", {"stage": "context"})
@@ -99,6 +107,12 @@ async def answer_question(
     draft: SQLDraft | None = None
     result = None
 
+    # 表名白名单：默认给整个库（保证合法 join 不被误杀）；
+    # 敏感库可以开严格模式，只允许「已给模型看过的表」——注入想查别的表就会被闸门挡下。
+    allow_tables = (
+        set(context.tables) if settings.strict_table_allowlist else set(context.candidate_tables)
+    )
+
     for attempt in range(1, settings.max_repair + 1):
         answer.attempts = attempt
         try:
@@ -116,7 +130,7 @@ async def answer_question(
             guarded = check(
                 draft.sql,
                 dialect=ds.type,
-                allow_tables=set(context.candidate_tables),
+                allow_tables=allow_tables,
                 max_rows=settings.read_max_rows,
             )
         except GuardError as exc:

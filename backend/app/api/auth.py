@@ -50,16 +50,22 @@ _user_limiter = SlidingWindowLimiter(
     limit=settings.login_max_failures_per_user,
     window_seconds=settings.login_failure_window,
 )
+# 注册按"成功建号"计数：只是重名/格式错不该占用额度
+_register_limiter = SlidingWindowLimiter(
+    limit=settings.register_max_per_ip,
+    window_seconds=settings.register_window,
+)
 
 
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def reset_login_limits() -> None:
-    """测试与运维用：清空所有失败计数。"""
+def reset_limits() -> None:
+    """测试与运维用：清空所有限流计数。"""
     _login_limiter.clear()
     _user_limiter.clear()
+    _register_limiter.clear()
 
 
 def _issue(user: User) -> TokenResponse:
@@ -139,10 +145,27 @@ async def login(
 )
 async def register(
     body: RegisterRequest,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     if not settings.allow_registration:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "当前部署未开放注册")
+
+    ip_key = f"ip:{_client_ip(request)}"
+    if settings.register_ratelimit_enabled:
+        decision = _register_limiter.check(ip_key)
+        if not decision.allowed:
+            await audit_record(
+                "auth.register",
+                actor=Actor.anonymous(body.username),
+                result="denied",
+                detail={"reason": "rate_limited", "retry_after": decision.retry_after},
+            )
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                f"注册过于频繁，请 {decision.retry_after} 秒后再试",
+                headers={"Retry-After": str(decision.retry_after)},
+            )
 
     username = body.username.strip()
     if not USERNAME_PATTERN.match(username):
@@ -172,6 +195,9 @@ async def register(
         await session.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "用户名已被占用") from None
     await session.refresh(user)
+
+    if settings.register_ratelimit_enabled:
+        _register_limiter.hit(ip_key)
 
     await audit_record(
         "auth.register",

@@ -6,7 +6,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from app.api.auth import reset_login_limits
+from app.api.auth import reset_limits
 from app.config import settings
 
 
@@ -62,7 +62,7 @@ def test_lockout_is_hard__correct_password_also_blocked(client: TestClient) -> N
     assert int(blocked.headers["Retry-After"]) > 0
 
     # 运维逃生口：清空计数后立刻恢复
-    reset_login_limits()
+    reset_limits()
     assert _login(client, username, "passw0rd-123").status_code == 200
 
 
@@ -104,5 +104,55 @@ def test_reset_helper(client: TestClient) -> None:
         _login(client, username, "wrong")
     assert _login(client, username, "wrong").status_code == 429
 
-    reset_login_limits()
+    reset_limits()
     assert _login(client, username, "wrong").status_code == 401
+
+# ---------------- 注册限流 ----------------
+
+
+def _register(client: TestClient, name: str):
+    return client.post(
+        "/api/v1/auth/register", json={"username": name, "password": "passw0rd-123"}
+    )
+
+
+def test_register_is_limited_per_ip(client: TestClient) -> None:
+    limit = settings.register_max_per_ip
+    for _ in range(limit):
+        assert _register(client, f"reg-{uuid.uuid4().hex[:8]}").status_code == 201
+
+    blocked = _register(client, f"reg-{uuid.uuid4().hex[:8]}")
+    assert blocked.status_code == 429
+    assert int(blocked.headers["Retry-After"]) > 0
+    assert "频繁" in blocked.json()["detail"]
+
+
+def test_failed_registration_does_not_consume_quota(client: TestClient) -> None:
+    """重名不应该占用额度：否则有人拿常用名试几次就把正常用户挡在门外。"""
+    taken = f"taken-{uuid.uuid4().hex[:6]}"
+    assert _register(client, taken).status_code == 201
+
+    for _ in range(settings.register_max_per_ip + 2):
+        assert _register(client, taken).status_code == 409
+
+    assert _register(client, f"fresh-{uuid.uuid4().hex[:8]}").status_code == 201
+
+
+def test_register_limit_can_be_disabled(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "register_ratelimit_enabled", False)
+    for _ in range(settings.register_max_per_ip + 2):
+        assert _register(client, f"open-{uuid.uuid4().hex[:8]}").status_code == 201
+
+
+def test_register_rate_limit_is_audited(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    for _ in range(settings.register_max_per_ip):
+        assert _register(client, f"audit-{uuid.uuid4().hex[:8]}").status_code == 201
+    assert _register(client, f"audit-{uuid.uuid4().hex[:8]}").status_code == 429
+
+    page = client.get(
+        "/api/v1/audit", headers=admin_headers, params={"action": "auth.register"}
+    ).json()
+    reasons = {(item["detail"] or {}).get("reason") for item in page["items"]}
+    assert "rate_limited" in reasons
