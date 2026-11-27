@@ -6,11 +6,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import uploads
 from app.audit import Auditor
+from app.config import settings
 from app.deps import Principal, get_auditor, get_principal, get_session
 from app.dialects import get_dialect, test_connection
 from app.engine.context import invalidate_cache
@@ -21,6 +25,8 @@ from app.security import get_secret_box
 from app.store import owned_datasource, read_password
 
 router = APIRouter(prefix="/datasources", tags=["datasources"])
+
+SAFETY_LEVELS = {"L0", "L1", "L2", "L3"}
 
 
 def _to_out(ds: Datasource) -> DatasourceOut:
@@ -104,18 +110,81 @@ async def delete_datasource(
     auditor: Auditor = Depends(get_auditor),
 ) -> None:
     ds = await owned_datasource(session, user.workspace_id, datasource_id)
-    name, ds_type = ds.name, ds.type
+    name, ds_type, database = ds.name, ds.type, ds.database
     await session.delete(ds)
     await session.commit()
     # SQLite 的 rowid 可能被复用：不清缓存的话，新建的数据源可能读到旧表结构
     invalidate_cache(datasource_id)
+    # 上传来的文件跟着删；手填的服务器路径不碰
+    removed_file = uploads.remove_upload(database)
 
     await auditor.log(
         "datasource.delete",
         target_type="datasource",
         target_id=datasource_id,
-        detail={"name": name, "type": ds_type},
+        detail={"name": name, "type": ds_type, "removed_upload": removed_file},
     )
+
+
+@router.post("/upload", response_model=DatasourceOut, status_code=status.HTTP_201_CREATED)
+async def upload_datasource(
+    file: UploadFile = File(..., description="SQLite 数据库文件（.db / .sqlite / .sqlite3）"),
+    name: str = Form(""),
+    safety_level: str = Form("L0"),
+    user: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+    auditor: Auditor = Depends(get_auditor),
+) -> DatasourceOut:
+    """上传一个 SQLite 文件并直接建成数据源。
+
+    先落盘、再试读结构：**读不出来就删文件**，不让"列表里有个打不开的数据源"这种事发生。
+    """
+    if not settings.allow_upload:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "当前部署未开放文件上传")
+    if safety_level not in SAFETY_LEVELS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "安全等级不合法")
+
+    try:
+        path = await uploads.save_sqlite(file, user.workspace_id)
+    except uploads.UploadError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    ds = Datasource(
+        workspace_id=user.workspace_id,
+        name=(name.strip() or Path(file.filename or "").stem or "上传的数据库")[:128],
+        type="sqlite",
+        database=str(path),
+        safety_level=safety_level,
+        is_prod=False,
+    )
+
+    # 先 flush 拿到 id：introspect 要把它填进 SchemaOut，没 id 会校验失败
+    session.add(ds)
+    await session.flush()
+    try:
+        schema = await introspect(ds, "")
+        if not schema.tables:
+            raise ValueError("库里没有任何表")
+    except Exception as exc:  # noqa: BLE001 - 文件坏了就明确告诉用户
+        await session.rollback()
+        uploads.remove_upload(str(path))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"这个文件读不出来：{exc}") from exc
+
+    await session.commit()
+    await session.refresh(ds)
+
+    await auditor.log(
+        "datasource.upload",
+        target_type="datasource",
+        target_id=ds.id,
+        detail={
+            "name": ds.name,
+            "filename": (file.filename or "")[:120],
+            "size_mb": round(path.stat().st_size / (1024 * 1024), 2),
+            "tables": len(schema.tables),
+        },
+    )
+    return _to_out(ds)
 
 
 @router.post("/{datasource_id}/test", response_model=TestResult)

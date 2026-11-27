@@ -97,6 +97,14 @@ class Settings(BaseSettings):
     # 取行数的总预算（秒）：超时就放弃，只影响「约 N 行」这个提示
     schema_row_counts_budget: float = 2.0
 
+    # ---- SQLite 文件上传 ----
+    # 关掉之后「上传」入口会返回 403，只保留手填服务器路径
+    allow_upload: bool = True
+    upload_max_mb_per_file: int = 50
+    upload_max_mb_per_workspace: int = 200
+    # 全站上限：防止开放注册后被大量上传塞满磁盘
+    upload_max_mb_total: int = 2048
+
     @property
     def resolved_database_url(self) -> str:
         if self.database_url:

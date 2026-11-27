@@ -18,6 +18,12 @@ const client: AxiosInstance = axios.create({
 });
 
 client.interceptors.request.use((config) => {
+  // FormData 交给浏览器自己决定 Content-Type（它要写 boundary）；
+  // 我们默认的 application/json 会把它写死成不带 boundary 的值，导致上传失败。
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+
   // 写操作带上双提交 CSRF 令牌（服务端只对 cookie 认证的写操作校验）
   const method = (config.method ?? 'get').toLowerCase();
   if (!SAFE_METHODS.has(method)) {

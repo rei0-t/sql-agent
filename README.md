@@ -51,6 +51,8 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 - 登录 / JWT / scrypt 口令哈希
 - 数据源管理：MySQL、PostgreSQL、SQLite 的增删查、连通性测试、结构快照
+- **SQLite 可直接上传文件**：浏览器选文件 → 落到你自己的空间 → 立刻可查，不用碰服务器
+  三道上限（单文件 50 MB / 每空间 200 MB / 全站 2 GB），`SQLAGENT_ALLOW_UPLOAD=false` 可整体关闭
 - **凭证不信封**：数据源口令用 Fernet 加密落库，接口永不回显；L2 及以上强制要求独立的可写账号
 - 审计：登录、增删数据源、探测、取结构全部留痕（只追加）
 - 单进程部署：后端自动托管 `frontend/dist`，SPA 路由回退已处理
@@ -354,6 +356,7 @@ deploy/           Dockerfile 与 compose
 | DELETE | `/api/v1/keys/{id}` | 吊销 Key |
 | POST | `/api/v1/query` | **开发者查询**：Key 换 JSON（SQL + 结果 + 结论） |
 | GET/POST | `/api/v1/datasources` | 列表 / 新建（Key 也可读） |
+| POST | `/api/v1/datasources/upload` | 上传 SQLite 文件并直接建成数据源（multipart，带配额） |
 | DELETE | `/api/v1/datasources/{id}` | 删除 |
 | POST | `/api/v1/datasources/{id}/test` | 连通性测试 |
 | GET | `/api/v1/datasources/{id}/schema` | 表结构快照 |
