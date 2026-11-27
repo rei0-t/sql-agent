@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -20,6 +21,8 @@ from sqlalchemy import text
 
 from app.dialects import get_dialect
 from app.models import Datasource
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionError(RuntimeError):
@@ -73,10 +76,21 @@ def _classify(exc: Exception) -> ExecutionError:
 
 
 async def _apply_timeout(conn: Any, ds_type: str, timeout_seconds: int) -> None:
-    if ds_type == "postgres":
-        await conn.execute(text(f"SET statement_timeout = {timeout_seconds * 1000}"))
-    elif ds_type == "mysql":
-        await conn.execute(text(f"SET SESSION MAX_EXECUTION_TIME = {timeout_seconds * 1000}"))
+    """尽量让数据库自己超时，这样报错可读、也能被归类后回灌给模型。
+
+    这只是"锦上添花"：MariaDB 用 max_statement_time，老的 MySQL 没有这个变量，
+    设置失败不该让整条查询挂掉——进程侧的 asyncio.wait_for 仍然兜底。
+    """
+    statement = {
+        "postgres": f"SET statement_timeout = {timeout_seconds * 1000}",
+        "mysql": f"SET SESSION MAX_EXECUTION_TIME = {timeout_seconds * 1000}",
+    }.get(ds_type)
+    if statement is None:
+        return
+    try:
+        await conn.execute(text(statement))
+    except Exception:  # noqa: BLE001 - 方言差异，降级为仅靠进程侧超时
+        logger.debug("设置查询超时失败（%s），改由进程侧超时兜底", ds_type, exc_info=True)
 
 
 async def run_select(

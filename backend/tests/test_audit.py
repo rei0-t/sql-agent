@@ -48,6 +48,21 @@ def test_audit_records_and_lists(client: TestClient, admin_headers: dict[str, st
     client.delete(f"/api/v1/datasources/{ds_id}", headers=admin_headers)
 
 
+def test_audit_timestamp_is_timezone_aware(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    """回归：SQLite 读回 naive datetime，接口输出没有时区，前端会差 8 小时。"""
+    from datetime import UTC, datetime
+
+    item = client.get("/api/v1/audit", headers=admin_headers, params={"limit": 1}).json()["items"][0]
+    raw = item["created_at"]
+    assert raw.endswith("Z") or "+00:00" in raw, raw
+
+    parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    assert parsed.tzinfo is not None
+    assert abs((datetime.now(UTC) - parsed).total_seconds()) < 300
+
+
 def test_audit_filters_and_pagination(client: TestClient, admin_headers: dict[str, str]) -> None:
     page = client.get(
         "/api/v1/audit", headers=admin_headers, params={"limit": 2, "offset": 0}

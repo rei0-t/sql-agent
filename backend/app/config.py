@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     database_url: str | None = None
     data_dir: Path = BASE_DIR / "data"
 
+    # 语义层文件；相对路径按 backend/ 解析（不依赖启动时的工作目录）
+    semantics_path: str | None = None
+
     # 安全
     secret_key: str = "dev-only-change-me-before-any-real-use"
     access_token_ttl_minutes: int = 720

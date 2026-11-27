@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import Auditor
 from app.deps import Principal, get_auditor, get_principal, get_session
 from app.dialects import get_dialect, test_connection
+from app.engine.context import invalidate_cache
 from app.introspect import introspect
 from app.models import Datasource, utcnow
 from app.schemas import DatasourceCreate, DatasourceOut, SchemaOut, TestResult
@@ -106,6 +107,8 @@ async def delete_datasource(
     name, ds_type = ds.name, ds.type
     await session.delete(ds)
     await session.commit()
+    # SQLite 的 rowid 可能被复用：不清缓存的话，新建的数据源可能读到旧表结构
+    invalidate_cache(datasource_id)
 
     await auditor.log(
         "datasource.delete",

@@ -2,6 +2,7 @@
 
 工程要点：
 - queue + 独立 task：让「生成」和「发送」并行，否则模型思考的十秒里前端一个字节都收不到。
+- 客户端断开时**不取消** worker：取消会打断审计写入，让中途关页面的请求从审计里消失。
 - store.snapshot：流式期间请求级 session 已关闭，必须用脱离会话的副本。
 - X-Accel-Buffering: no：避免 Nginx 缓冲导致「卡住十秒后一次性刷出」。
 """
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -31,6 +33,8 @@ from app.schemas import ChatConfigOut, ChatFeedbackIn, ChatRequest
 from app.store import owned_datasource, read_password, snapshot
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+logger = logging.getLogger(__name__)
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -87,6 +91,8 @@ async def chat_stream(
                 )
             )
         except Exception as exc:  # noqa: BLE001 - 兜底，保证前端一定收到终态
+            # 也要落服务端日志：客户端可能已经断开，只塞进 SSE 等于没记
+            logger.warning("问答失败（datasource=%s）：%s", ds.id, exc, exc_info=True)
             await queue.put(_sse("error", {"detail": str(exc)[:300]}))
             await queue.put(_sse("done", {"ok": False, "error": "内部错误"}))
         finally:
@@ -108,6 +114,21 @@ async def chat_stream(
 
     task = asyncio.create_task(worker())
 
+    def _consume(t: asyncio.Task) -> None:
+        """worker 的异常要有人取，否则 asyncio 只会打一句 'never retrieved'。
+
+        正常路径不会走到这里（worker 自己处理了异常），只有取消
+        （进程关闭）和未捕获异常会留下痕迹。
+        """
+        if t.cancelled():
+            logger.info("worker 被取消（服务关闭中）")
+            return
+        exc = t.exception()
+        if exc is not None:
+            logger.warning("问答任务异常：%s", exc, exc_info=exc)
+
+    task.add_done_callback(_consume)
+
     async def event_source():
         try:
             while True:
@@ -116,8 +137,11 @@ async def chat_stream(
                     break
                 yield chunk
         finally:
-            if not task.done():
-                task.cancel()
+            # 客户端断开时**不要取消** worker：取消会打断 finally 里的审计写入
+            # （CancelledError 会在审计的 I/O 停留处再次抛出），
+            # 于是「用户中途关掉页面」的请求在审计里彻底消失。
+            # 让它跑完（最多一次问答的时长），结果丢弃，审计照写。
+            pass
 
     return StreamingResponse(
         event_source(),

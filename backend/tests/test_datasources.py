@@ -108,3 +108,21 @@ def test_mysql_requires_host_and_port(
         json={"name": "缺字段", "type": "mysql", "database": "demo", "username": "root"},
     )
     assert response.status_code == 422
+
+def test_delete_invalidates_schema_cache(
+    client: TestClient, admin_headers: dict[str, str], monkeypatch
+) -> None:
+    """回归：删掉数据源要清缓存，否则 SQLite 复用 rowid 时会读到旧表结构。"""
+    from app.api import datasources as datasources_api
+
+    calls: list[int] = []
+    monkeypatch.setattr(datasources_api, "invalidate_cache", lambda ds_id=None: calls.append(ds_id))
+
+    created = client.post(
+        "/api/v1/datasources",
+        headers=admin_headers,
+        json={"name": "缓存测试", "type": "sqlite", "database": "unused.db"},
+    )
+    ds_id = created.json()["id"]
+    assert client.delete(f"/api/v1/datasources/{ds_id}", headers=admin_headers).status_code == 204
+    assert calls == [ds_id]
