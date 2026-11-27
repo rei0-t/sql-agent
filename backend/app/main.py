@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -19,16 +21,29 @@ from app.api import audit as audit_api
 from app.api import auth, chat, datasources, health, keys, query, users
 from app.api import settings as settings_api
 from app.config import settings
-from app.db import init_db
+from app.db import SessionLocal, init_db
+from app.demo import ensure_demo_file, ensure_demo_for_all
 from app.logging_setup import setup_logging
 from app.middleware import RequestContextMiddleware
 
 setup_logging()
+logger = logging.getLogger("app")
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await init_db()
+    # 示例库：首次启动要生成文件（约 3 秒），放线程里避免阻塞事件循环；
+    # 任何失败都不该挡住服务启动
+    try:
+        path = await asyncio.to_thread(ensure_demo_file)
+        if path is not None:
+            async with SessionLocal() as session:
+                created = await ensure_demo_for_all(session)
+            if created:
+                logger.info("已为 %d 个工作空间补发示例库", created)
+    except Exception:  # noqa: BLE001
+        logger.warning("示例库初始化失败，跳过", exc_info=True)
     yield
 
 

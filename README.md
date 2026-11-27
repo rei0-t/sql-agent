@@ -53,6 +53,8 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 - 数据源管理：MySQL、PostgreSQL、SQLite 的增删查、连通性测试、结构快照
 - **SQLite 可直接上传文件**：浏览器选文件 → 落到你自己的空间 → 立刻可查，不用碰服务器
   三道上限（单文件 50 MB / 每空间 200 MB / 全站 2 GB），`SQLAGENT_ALLOW_UPLOAD=false` 可整体关闭
+- **示例库自动发放**：新用户注册完立刻有一个只读的演示电商库（20k 订单），打开就能提问
+- **问答配额**：按工作空间每小时限次（默认 60，`/chat/stream` 与 `/query` 合计），超限 429
 - **凭证不信封**：数据源口令用 Fernet 加密落库，接口永不回显；L2 及以上强制要求独立的可写账号
 - 审计：登录、增删数据源、探测、取结构全部留痕（只追加）
 - 单进程部署：后端自动托管 `frontend/dist`，SPA 路由回退已处理
@@ -398,6 +400,7 @@ P2 不是"还没做"，是**这一期明确不做**：没有 `/mutation` 路由�
 | **登录爆破** | 同一 IP 与同一用户名各一个滑动窗口，超限返回 429（带 `Retry-After`），并记一条 `rate_limited` 审计。**硬锁定**：超限后正确密码也拒绝——否则限流形同虚设；代价是知道用户名的人可以把你锁 5 分钟 | `SQLAGENT_LOGIN_RATELIMIT_ENABLED=false` 关闭 |
 | **越权读** | 所有数据源查询按 `workspace_id` 过滤，「不存在」与「无权」统一返回 404，避免用状态码探测 id | — |
 | **注册刷号** | 同一 IP 每小时最多建 5 个账号（按**成功建号**计数，重名/格式错不占额度），超限 429 | `SQLAGENT_REGISTER_RATELIMIT_ENABLED=false` 关闭 |
+| **额度被刷** | 每个工作空间每小时最多 60 次问答（两条通道合计），超限 429 + `Retry-After`，并记 `rate_limited` 审计 | `SQLAGENT_CHAT_MAX_PER_HOUR` 调整 / `SQLAGENT_CHAT_RATELIMIT_ENABLED=false` 关闭 |
 | **Prompt 注入** | 表名/列注释/采样值先清洗（折叠换行、拆掉分隔符、截断）再进 prompt；上下文用显式边界标记为"数据而非指令"；用户问题命中典型越狱话术时记 `injection_flags` 并在 `done` 事件里透出 | `SQLAGENT_STRICT_TABLE_ALLOWLIST=true` 进一步把可查表限制为"给模型看过的表" |
 | **改密码后旧会话** | `token_version` 自增，已签发的令牌全部失效；禁用账号同样立即作废在线会话 | — |
 

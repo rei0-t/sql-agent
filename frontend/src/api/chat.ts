@@ -51,8 +51,18 @@ export async function streamChat(
   });
 
   if (!response.ok || !response.body) {
-    const text = await response.text().catch(() => '');
-    throw new Error(text || `请求失败（HTTP ${response.status}）`);
+    const raw = await response.text().catch(() => '');
+    // 后端错误体是 {"detail": "..."}；直接把 JSON 丢到界面会很难看
+    let message = raw;
+    try {
+      const parsed = JSON.parse(raw) as { detail?: unknown };
+      if (typeof parsed.detail === 'string') {
+        message = parsed.detail;
+      }
+    } catch {
+      // 不是 JSON 就原样显示（例如 Nginx 的 413 HTML 会被截断成提示）
+    }
+    throw new Error(message || `请求失败（HTTP ${response.status}）`);
   }
 
   const reader = response.body.getReader();

@@ -97,8 +97,16 @@ class Settings(BaseSettings):
     # 取行数的总预算（秒）：超时就放弃，只影响「约 N 行」这个提示
     schema_row_counts_budget: float = 2.0
 
+    # ---- 示例库 ----
+    # 每个工作空间自动获得一个只读的演示数据源（同一个文件的多个引用）
+    demo_datasource: bool = True
+
+    # ---- 问答配额 ----
+    # 用公共模型 Key 对外开放时，这层是唯一防刷的手段（按工作空间计）
+    chat_ratelimit_enabled: bool = True
+    chat_max_per_hour: int = 60
+
     # ---- SQLite 文件上传 ----
-    # 关掉之后「上传」入口会返回 403，只保留手填服务器路径
     allow_upload: bool = True
     upload_max_mb_per_file: int = 50
     upload_max_mb_per_workspace: int = 200

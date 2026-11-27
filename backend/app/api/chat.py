@@ -14,7 +14,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,7 @@ from app.deps import (
 )
 from app.engine.llm import ChatModel
 from app.engine.pipeline import Answer, answer_question
+from app.quota import check_chat, hit_chat
 from app.schemas import ChatConfigOut, ChatFeedbackIn, ChatRequest
 from app.store import owned_datasource, read_password, snapshot
 
@@ -66,6 +67,23 @@ async def chat_stream(
     stored = await owned_datasource(session, principal.workspace_id, body.datasource_id)
     password = read_password(stored)
     ds = snapshot(stored)
+
+    # 配额：用公共 Key 对外开放时，这层是唯一防刷的手段
+    limited = check_chat(principal.workspace_id)
+    if limited is not None:
+        await auditor.log(
+            "chat.read",
+            target_type="datasource",
+            target_id=body.datasource_id,
+            result="denied",
+            detail={"reason": "rate_limited", "retry_after": limited.retry_after},
+        )
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"提问次数已达上限，请 {limited.retry_after} 秒后再试",
+            headers={"Retry-After": str(limited.retry_after)},
+        )
+    hit_chat(principal.workspace_id)
 
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 

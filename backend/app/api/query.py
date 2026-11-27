@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import Auditor
@@ -19,6 +19,7 @@ from app.deps import (
 )
 from app.engine.llm import ChatModel
 from app.engine.pipeline import answer_question
+from app.quota import check_chat, hit_chat
 from app.schemas import QueryIn, QueryOut
 from app.store import owned_datasource, read_password
 
@@ -34,6 +35,17 @@ async def run_query(
     auditor: Auditor = Depends(get_auditor),
 ) -> QueryOut:
     ds = await owned_datasource(session, principal.workspace_id, body.datasource_id)
+
+    # 与 /chat/stream 共用同一份配额：一个工作空间一小时能问多少，两条通道合计
+    limited = check_chat(principal.workspace_id)
+    if limited is not None:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"调用次数已达上限，请 {limited.retry_after} 秒后再试",
+            headers={"Retry-After": str(limited.retry_after)},
+        )
+    hit_chat(principal.workspace_id)
+
     answer = await answer_question(ds, read_password(ds), body.question, model)
 
     await auditor.log(

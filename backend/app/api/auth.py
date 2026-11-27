@@ -26,6 +26,7 @@ from app import csrf
 from app.audit import Actor
 from app.audit import record as audit_record
 from app.config import settings
+from app.demo import ensure_demo_datasource
 from app.deps import get_current_user, get_session, verify_csrf
 from app.models import User, Workspace
 from app.ratelimit import SlidingWindowLimiter
@@ -253,6 +254,9 @@ async def register(
 
     if settings.register_ratelimit_enabled:
         _register_limiter.hit(ip_key)
+
+    # 新用户进来就能问：发一个只读的示例库（关掉 SQLAGENT_DEMO_DATASOURCE 则跳过）
+    await ensure_demo_datasource(session, workspace.id)
 
     await audit_record(
         "auth.register",

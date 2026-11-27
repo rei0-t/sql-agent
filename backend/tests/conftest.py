@@ -37,6 +37,8 @@ os.environ["SQLAGENT_DATABASE_URL"] = f"sqlite+aiosqlite:///{(_TMP / 'meta.db').
 os.environ["SQLAGENT_SECRET_KEY"] = "test-secret-key-do-not-use-in-prod"
 os.environ["SQLAGENT_ADMIN_USERNAME"] = "admin"
 os.environ["SQLAGENT_ADMIN_PASSWORD"] = "test-password"
+# 测试里默认不发示例库：它会造 3MB 文件，且会干扰"注册后应有 0 个数据源"这类断言
+os.environ["SQLAGENT_DEMO_DATASOURCE"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -59,10 +61,13 @@ def offline_dns(monkeypatch):
 def clean_rate_limits():
     """每个用例都从零开始计失败次数，避免互相干扰。"""
     from app.api.auth import reset_limits
+    from app.quota import reset_chat_limits
 
     reset_limits()
+    reset_chat_limits()
     yield
     reset_limits()
+    reset_chat_limits()
 
 
 @pytest.fixture(scope="session")
