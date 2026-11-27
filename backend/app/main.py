@@ -20,7 +20,10 @@ from app.api import auth, chat, datasources, health, keys, query
 from app.api import settings as settings_api
 from app.config import settings
 from app.db import init_db
+from app.logging_setup import setup_logging
 from app.middleware import RequestContextMiddleware
+
+setup_logging()
 
 
 @asynccontextmanager
