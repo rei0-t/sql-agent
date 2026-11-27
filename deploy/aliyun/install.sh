@@ -43,6 +43,35 @@ install_pkg() {
   esac
 }
 
+# ---------- 0. swap ----------
+# 2G 内存的机器**运行时够用**，但构建镜像那一步（node 构建 + pip 装依赖）会瞬间冲到 1G+，
+# 没有 swap 就会被内核 OOM killer 干掉，表现为 "Killed" 或构建突然中断。
+ensure_swap() {
+  local total_mb
+  total_mb=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo)
+  if [[ $total_mb -ge 3000 ]]; then
+    return
+  fi
+  if swapon --show 2>/dev/null | grep -q .; then
+    echo "    内存 ${total_mb}MB，已有 swap，跳过"
+    return
+  fi
+  echo "    内存 ${total_mb}MB：建 2G swap，防止构建时被 OOM 杀掉（约 10 秒）"
+  if ! fallocate -l 2G /swapfile 2>/dev/null; then
+    dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  fi
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  sysctl -w vm.swappiness=20 >/dev/null
+}
+
+if [[ $EUID -eq 0 ]]; then
+  say "检查内存与 swap"
+  ensure_swap
+fi
+
 # ---------- 1. Docker ----------
 say "检查 Docker"
 if ! command -v docker >/dev/null 2>&1; then
