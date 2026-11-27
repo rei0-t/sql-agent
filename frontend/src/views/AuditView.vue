@@ -321,11 +321,11 @@ async function copyDetail(): Promise<void> {
 }
 
 .col-time {
-  width: 136px;
+  width: 170px;
 }
 
 .col-actor {
-  width: 120px;
+  width: 110px;
 }
 
 .col-action {

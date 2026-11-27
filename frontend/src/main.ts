@@ -14,11 +14,15 @@ const app = createApp(App);
 app.use(pinia);
 app.use(router);
 
-// 接口返回 401 时清理登录态并回到登录页
+// 接口返回 401：清掉本地会话；只有当前页面需要登录时才跳转。
+// 否则在 /login、/register 上探测会话（必然 401）会把用户踢走——注册入口就打不开了。
 window.addEventListener(UNAUTHORIZED_EVENT, () => {
   const auth = useAuthStore(pinia);
   auth.clearSession();
-  if (router.currentRoute.value.name !== 'login') {
+  const current = router.currentRoute.value;
+  // 只对"明确要求登录"的页面跳转：首次导航时 currentRoute 还是起始态（meta 为空），
+  // 用 !== false 判断会把 /register 也踢回登录页。
+  if (current.meta.requiresAuth === true) {
     void router.replace({ name: 'login' });
   }
 });

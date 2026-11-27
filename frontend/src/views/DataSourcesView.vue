@@ -114,14 +114,14 @@ async function confirmDelete(): Promise<void> {
     <section class="panel panel--scroll">
       <table v-if="store.items.length" class="table">
         <colgroup>
-          <col style="width: 20%" />
-          <col style="width: 9%" />
-          <col style="width: 23%" />
+          <col style="width: 15%" />
+          <col style="width: 8%" />
+          <col style="width: 19%" />
           <col style="width: 9%" />
           <col style="width: 8%" />
-          <col style="width: 9%" />
-          <col style="width: 12%" />
-          <col style="width: 10%" />
+          <col style="width: 8%" />
+          <col style="width: 13%" />
+          <col style="width: 19%" />
         </colgroup>
         <thead>
           <tr>

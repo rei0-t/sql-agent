@@ -1,34 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import { RouterLink, useRoute } from 'vue-router';
 
 import { fetchChatConfig, streamChat, type ChatConfig } from '@/api/chat';
 import { extractErrorMessage } from '@/api/client';
-import UiButton from '@/components/ui/UiButton.vue';
-import UiSelect from '@/components/ui/UiSelect.vue';
+import AppIcon from '@/components/AppIcon.vue';
+import BrandMark from '@/components/BrandMark.vue';
 import { pushToast } from '@/components/ui/useToast';
+import { useChatStore, type ChatTurn } from '@/stores/chat';
 import { useDatasourceStore } from '@/stores/datasources';
-
-type TurnStatus = 'running' | 'ok' | 'error' | 'clarify';
-
-interface Turn {
-  id: number;
-  question: string;
-  status: TurnStatus;
-  stage: string;
-  sql: string;
-  explain: string;
-  columns: string[];
-  rows: unknown[][];
-  truncated: boolean;
-  answer: string;
-  clarification: string;
-  error: string;
-  attempts: number;
-  elapsed: number;
-  tokens: number;
-}
 
 const STAGE_LABELS: Record<string, string> = {
   context: '读取表结构',
@@ -42,23 +23,32 @@ const EXAMPLES = [
   '2026 年第三季度华东区的 GMV 是多少',
   'GMV 最高的 3 个品类是什么',
   '按客单价排序，前 5 个城市是哪些',
+  '退款率最高的月份是哪个月',
 ];
 
 const store = useDatasourceStore();
+const chat = useChatStore();
 const route = useRoute();
+
 const config = ref<ChatConfig | null>(null);
 const selectedDs = ref('');
 const input = ref('');
-const turns = ref<Turn[]>([]);
 const running = ref(false);
-const logRef = ref<HTMLElement | null>(null);
+const scrollRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 
 let seq = 0;
 let controller: AbortController | null = null;
 
+const thread = computed(() => chat.activeThread);
+const turns = computed<ChatTurn[]>(() => thread.value?.turns ?? []);
 const hasDatasource = computed(() => store.items.length > 0);
-const canSend = computed(() => input.value.trim().length > 0 && selectedDs.value !== '' && !running.value);
+const canSend = computed(
+  () => input.value.trim().length > 0 && selectedDs.value !== '' && !running.value,
+);
+const selectedName = computed(
+  () => store.items.find((item) => String(item.id) === selectedDs.value)?.name ?? '选择数据源',
+);
 
 onMounted(async () => {
   try {
@@ -68,15 +58,18 @@ onMounted(async () => {
   }
   try {
     await store.load();
-    if (store.items.length) {
-      selectedDs.value = String(store.items[0].id);
-    }
+    const preferred = thread.value?.datasourceId;
+    selectedDs.value =
+      (preferred && store.items.some((item) => String(item.id) === preferred) && preferred) ||
+      (store.items.length ? String(store.items[0].id) : '');
   } catch (error) {
     pushToast(extractErrorMessage(error, '加载数据源失败'), 'error');
   }
+  resize();
   inputRef.value?.focus();
+  scrollToBottom(false);
 
-  // 深链接：/chat?q=问题 可以直接把问题带进来并开始回答（方便分享）
+  // 深链接：/chat?q=问题 直接把问题带进来（方便分享）
   const preset = route.query.q;
   if (typeof preset === 'string' && preset.trim() && store.items.length) {
     await send(preset.trim());
@@ -87,16 +80,40 @@ onBeforeUnmount(() => {
   controller?.abort();
 });
 
-function scrollToBottom(): void {
+// 切换对话时滚到底部
+watch(
+  () => chat.activeId,
+  () => {
+    void nextTick(() => {
+      scrollToBottom(false);
+      inputRef.value?.focus();
+    });
+  },
+);
+
+function scrollToBottom(smooth = true): void {
   void nextTick(() => {
-    const element = logRef.value;
-    if (element) {
-      element.scrollTop = element.scrollHeight;
+    const element = scrollRef.value;
+    if (!element) {
+      return;
     }
+    element.scrollTo({ top: element.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   });
 }
 
-function handle(turn: Turn, event: string, data: Record<string, unknown>): void {
+/** 输入框随内容长高，最多 7 行 */
+function resize(): void {
+  const element = inputRef.value;
+  if (!element) {
+    return;
+  }
+  element.style.height = 'auto';
+  element.style.height = `${Math.min(element.scrollHeight, 168)}px`;
+}
+
+watch(input, resize);
+
+function handle(turn: ChatTurn, event: string, data: Record<string, unknown>): void {
   switch (event) {
     case 'stage':
       turn.stage = String(data.stage ?? '');
@@ -111,6 +128,7 @@ function handle(turn: Turn, event: string, data: Record<string, unknown>): void 
       turn.columns = (data.columns as string[]) ?? [];
       turn.rows = (data.rows as unknown[][]) ?? [];
       turn.truncated = Boolean(data.truncated);
+      scrollToBottom();
       break;
     case 'answer':
       turn.answer = String(data.text ?? '');
@@ -124,7 +142,6 @@ function handle(turn: Turn, event: string, data: Record<string, unknown>): void 
       turn.status = 'clarify';
       break;
     case 'error':
-      // 单次重写的中间错误；最终成败以 done 为准
       turn.stage = `重试：${String(data.code ?? data.detail ?? '')}`.slice(0, 80);
       break;
     case 'done': {
@@ -145,16 +162,8 @@ function handle(turn: Turn, event: string, data: Record<string, unknown>): void 
   }
 }
 
-async function send(prefill?: string): Promise<void> {
-  const question = (prefill ?? input.value).trim();
-  if (!question || !selectedDs.value || running.value) {
-    return;
-  }
-
-  input.value = '';
-  running.value = true;
-
-  const turn = reactive<Turn>({
+function createTurn(question: string): ChatTurn {
+  return {
     id: ++seq,
     question,
     status: 'running',
@@ -170,8 +179,27 @@ async function send(prefill?: string): Promise<void> {
     attempts: 1,
     elapsed: 0,
     tokens: 0,
-  });
-  turns.value.push(turn);
+    createdAt: Date.now(),
+  };
+}
+
+async function send(prefill?: string): Promise<void> {
+  const question = (prefill ?? input.value).trim();
+  if (!question || !selectedDs.value || running.value) {
+    return;
+  }
+
+  const target = chat.ensureThread(selectedDs.value);
+  target.datasourceId = selectedDs.value;
+  chat.renameFromQuestion(target, question);
+
+  input.value = '';
+  running.value = true;
+  resize();
+
+  const turn = createTurn(question);
+  target.turns.push(turn);
+  target.updatedAt = Date.now();
   scrollToBottom();
 
   controller = new AbortController();
@@ -195,6 +223,7 @@ async function send(prefill?: string): Promise<void> {
   } finally {
     running.value = false;
     controller = null;
+    target.updatedAt = Date.now();
     inputRef.value?.focus();
     scrollToBottom();
   }
@@ -212,7 +241,7 @@ function stop(): void {
   running.value = false;
 }
 
-function retry(turn: Turn): void {
+function retry(turn: ChatTurn): void {
   void send(turn.question);
 }
 
@@ -225,18 +254,16 @@ async function copySql(sql: string): Promise<void> {
   }
 }
 
-function isNumber(value: unknown): boolean {
-  return typeof value === 'number';
-}
-
 function formatCell(value: unknown): string {
   if (value === null || value === undefined) {
     return '—';
   }
   if (typeof value === 'number') {
-    return Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    // 金额统一两位小数，避免 51742412.9 这种截断
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+      maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    });
   }
   return String(value);
 }
@@ -244,136 +271,188 @@ function formatCell(value: unknown): string {
 
 <template>
   <div class="chat">
-    <header class="chat__head">
-      <div>
-        <h1>对话</h1>
-        <p class="chat__meta">
-          查询通道 · 只读
-          <template v-if="config"> · {{ config.model }} · 最多 {{ config.max_rows }} 行</template>
-        </p>
+    <header class="bar">
+      <div class="bar__left">
+        <span class="bar__title">{{ thread?.title ?? '新对话' }}</span>
       </div>
-      <UiSelect v-if="hasDatasource" v-model="selectedDs" class="chat__ds">
-        <option v-for="item in store.items" :key="item.id" :value="String(item.id)">
-          {{ item.name }}
-        </option>
-      </UiSelect>
+      <div class="bar__right">
+        <label class="ds" :class="{ 'is-empty': !hasDatasource }">
+          <AppIcon name="database" :size="15" />
+          <select v-model="selectedDs" :disabled="!hasDatasource" aria-label="数据源">
+            <option v-if="!hasDatasource" value="">未接入数据源</option>
+            <option v-for="item in store.items" :key="item.id" :value="String(item.id)">
+              {{ item.name }}
+            </option>
+          </select>
+          <AppIcon name="chevron" :size="14" />
+        </label>
+        <span v-if="config" class="model">{{ config.model }}</span>
+      </div>
     </header>
 
-    <p class="chat__notice">
-      <span class="chat__notice-dot" aria-hidden="true" />
-      变更通道（INSERT / UPDATE / DELETE）暂未开放，当前只会执行只读查询。
-    </p>
-
-    <div ref="logRef" class="chat__log">
-      <div v-if="!hasDatasource" class="chat__empty">
-        <p class="chat__title">还没有可提问的数据源</p>
-        <p class="chat__text">先接入一个数据库，用只读账号就够了。</p>
-        <RouterLink :to="{ name: 'datasources' }">
-          <UiButton size="sm">去接入数据源</UiButton>
-        </RouterLink>
-      </div>
-
-      <div v-else-if="!turns.length" class="chat__empty">
-        <p class="chat__title">用一句中文提问，系统会生成 SQL 并在只读连接上执行。</p>
-        <div class="chat__examples">
-          <button v-for="example in EXAMPLES" :key="example" class="example" type="button" @click="send(example)">
-            {{ example }}
-          </button>
-        </div>
-      </div>
-
-      <article v-for="turn in turns" :key="turn.id" class="turn">
-        <p class="turn__question">{{ turn.question }}</p>
-
-        <div v-if="turn.status === 'running' && !turn.sql" class="stages">
-          <span class="stages__dot" />
-          <span>{{ STAGE_LABELS[turn.stage] ?? '处理中' }}…</span>
-        </div>
-
-        <div v-if="turn.clarification" class="clarify">
-          <span class="clarify__label">需要补充信息</span>
-          <p class="clarify__text">{{ turn.clarification }}</p>
-        </div>
-
-        <div v-if="turn.error" class="failure">
-          <span class="failure__label">这次没跑通</span>
-          <p class="failure__text">{{ turn.error }}</p>
-          <button class="link failure__retry" type="button" @click="retry(turn)">重试</button>
-        </div>
-
-        <template v-if="turn.sql">
-          <p v-if="turn.answer" class="turn__answer">{{ turn.answer }}</p>
-
-          <div class="block">
-            <div class="block__head">
-              <span class="block__label">SQL</span>
-              <button class="link" type="button" @click="copySql(turn.sql)">复制</button>
-            </div>
-            <pre class="sql">{{ turn.sql }}</pre>
-          </div>
-
-          <div v-if="turn.columns.length" class="block">
-            <div class="block__head">
-              <span class="block__label">
-                结果 · {{ turn.rows.length }} 行{{ turn.truncated ? '（已截断）' : '' }}
-              </span>
-            </div>
-            <div class="results">
-              <table class="results__table">
-                <thead>
-                  <tr>
-                    <th v-for="column in turn.columns" :key="column">{{ column }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(row, rowIndex) in turn.rows" :key="rowIndex">
-                    <td
-                      v-for="(cell, cellIndex) in row"
-                      :key="cellIndex"
-                      :class="{ 'is-number': isNumber(cell) }"
-                    >
-                      {{ formatCell(cell) }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <p class="turn__meta">
-            <span>{{ (turn.elapsed / 1000).toFixed(1) }}s</span>
-            <span>尝试 {{ turn.attempts }}</span>
-            <span v-if="turn.tokens">{{ (turn.tokens / 1000).toFixed(1) }}k tokens</span>
-            <span v-if="turn.status === 'running'" class="turn__meta-live">更新中…</span>
+    <div ref="scrollRef" class="scroll">
+      <div class="column">
+        <!-- 空态 -->
+        <section v-if="!turns.length" class="hero">
+          <BrandMark class="hero__mark" />
+          <h1 class="hero__title">今天想查点什么？</h1>
+          <p class="hero__sub">
+            用中文提问，我会写 SQL、在只读连接上执行，再用一句话给出结论。
           </p>
-        </template>
-      </article>
+
+          <div v-if="!hasDatasource" class="hero__missing">
+            <p>还没有可查询的数据源。</p>
+            <RouterLink class="hero__link" :to="{ name: 'datasources' }">去接入一个 →</RouterLink>
+          </div>
+
+          <div v-else class="suggestions">
+            <button
+              v-for="example in EXAMPLES"
+              :key="example"
+              class="suggestion"
+              type="button"
+              @click="send(example)"
+            >
+              {{ example }}
+            </button>
+          </div>
+        </section>
+
+        <!-- 对话 -->
+        <article v-for="turn in turns" :key="turn.id" class="exchange">
+          <div class="bubble">
+            <p>{{ turn.question }}</p>
+          </div>
+
+          <div class="reply">
+            <p v-if="turn.status === 'running' && !turn.answer" class="thinking">
+              <span class="thinking__dot" />
+              {{ STAGE_LABELS[turn.stage] ?? '处理中' }}…
+            </p>
+
+            <div v-if="turn.clarification" class="note note--ask">
+              <AppIcon name="warning" :size="16" />
+              <div>
+                <p class="note__title">需要补充信息</p>
+                <p class="note__text">{{ turn.clarification }}</p>
+              </div>
+            </div>
+
+            <div v-if="turn.error" class="note note--error">
+              <AppIcon name="warning" :size="16" />
+              <div>
+                <p class="note__title">这次没跑通</p>
+                <p class="note__text">{{ turn.error }}</p>
+                <button class="note__action" type="button" @click="retry(turn)">重试</button>
+              </div>
+            </div>
+
+            <p v-if="turn.answer" class="answer">{{ turn.answer }}</p>
+
+            <div v-if="turn.columns.length" class="result">
+              <div class="result__head">
+                <span>
+                  <AppIcon name="table" :size="14" />
+                  {{ turn.rows.length }} 行{{ turn.truncated ? '（已截断）' : '' }}
+                </span>
+              </div>
+              <div class="result__scroll">
+                <table class="result__table">
+                  <thead>
+                    <tr>
+                      <th v-for="column in turn.columns" :key="column">{{ column }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, rowIndex) in turn.rows" :key="rowIndex">
+                      <td
+                        v-for="(cell, cellIndex) in row"
+                        :key="cellIndex"
+                        :class="{ 'is-number': typeof cell === 'number' }"
+                      >
+                        {{ formatCell(cell) }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <details v-if="turn.sql" class="sql">
+              <summary class="sql__summary">
+                <AppIcon name="code" :size="15" />
+                <span>查看 SQL</span>
+                <span v-if="turn.attempts > 1" class="sql__tag">重写 {{ turn.attempts }} 次</span>
+                <AppIcon class="sql__chevron" name="chevron" :size="14" />
+              </summary>
+              <div class="sql__body">
+                <pre>{{ turn.sql }}</pre>
+                <button class="sql__copy" type="button" @click="copySql(turn.sql)">
+                  <AppIcon name="copy" :size="14" />
+                  复制
+                </button>
+              </div>
+            </details>
+
+            <p v-if="turn.sql" class="meta">
+              <span>{{ (turn.elapsed / 1000).toFixed(1) }}s</span>
+              <span v-if="turn.tokens">{{ (turn.tokens / 1000).toFixed(1) }}k tokens</span>
+              <span v-if="turn.status === 'running'">更新中…</span>
+            </p>
+          </div>
+        </article>
+      </div>
     </div>
 
     <footer class="composer">
-      <div class="composer__box" :class="{ 'is-disabled': !hasDatasource }">
-        <textarea
-          ref="inputRef"
-          v-model="input"
-          class="composer__input"
-          rows="2"
-          :placeholder="hasDatasource ? '问点什么，例如：2026 年 6 月华东区的 GMV 是多少' : '先接入数据源'"
-          :disabled="!hasDatasource"
-          @keydown="onKeydown"
-        />
-        <div class="composer__bar">
-          <span class="composer__hint">Enter 发送 · Shift + Enter 换行 · 只执行 SELECT</span>
-          <div class="composer__actions">
-            <UiButton v-if="running" variant="ghost" size="sm" @click="stop">停止</UiButton>
-            <UiButton size="sm" :disabled="!canSend" :loading="running" @click="send()">发送</UiButton>
+      <div class="composer__inner">
+        <div class="composer__box" :class="{ 'is-disabled': !hasDatasource }">
+          <textarea
+            ref="inputRef"
+            v-model="input"
+            class="composer__input"
+            rows="1"
+            :placeholder="hasDatasource ? '问点什么…' : '先接入数据源'"
+            :disabled="!hasDatasource"
+            @keydown="onKeydown"
+          />
+          <div class="composer__row">
+            <span class="composer__ds">
+              <AppIcon name="database" :size="13" />
+              {{ selectedName }}
+            </span>
+            <button
+              v-if="running"
+              class="send send--stop"
+              type="button"
+              title="停止"
+              @click="stop"
+            >
+              <AppIcon name="stop" :size="15" />
+            </button>
+            <button
+              v-else
+              class="send"
+              type="button"
+              title="发送"
+              :disabled="!canSend"
+              @click="send()"
+            >
+              <AppIcon name="send" :size="17" />
+            </button>
           </div>
         </div>
+        <p class="composer__hint">
+          <template v-if="config && !config.configured">
+            还没有配置模型：去
+            <RouterLink class="composer__link" :to="{ name: 'settings' }">设置</RouterLink>
+            填 Base URL、模型名和 Key。
+          </template>
+          <template v-else>
+            Enter 发送 · Shift + Enter 换行 · 只执行只读查询，不会改动数据
+          </template>
+        </p>
       </div>
-      <p v-if="config && !config.configured" class="composer__warn">
-        还没有配置模型：去
-        <RouterLink class="composer__warn-link" :to="{ name: 'settings' }">设置</RouterLink>
-        填 Base URL、模型名和 API Key，保存后就能提问。
-      </p>
     </footer>
   </div>
 </template>
@@ -382,152 +461,209 @@ function formatCell(value: unknown): string {
 .chat {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 0 32px;
+  height: 100%;
+  min-height: 0;
 }
 
-.chat__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 26px 0 14px;
-  border-bottom: 1px solid var(--line);
-}
+/* ---------- 顶栏 ---------- */
 
-.chat__head h1 {
-  font-size: 19px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.chat__meta {
-  margin-top: 5px;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-
-.chat__ds {
-  width: 200px;
-  flex: none;
-  margin-top: 2px;
-}
-
-.chat__notice {
+.bar {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 10px 0 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--ink-3);
-}
-
-.chat__notice-dot {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--ink-4);
+  justify-content: space-between;
+  gap: 16px;
   flex: none;
-}
-
-.chat__log {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 22px 0 8px;
-}
-
-.chat__empty {
-  padding: 40px 0;
-}
-
-.chat__title {
-  font-size: 13.5px;
-  color: var(--ink-2);
-}
-
-.chat__text {
-  margin: 6px 0 16px;
-  font-size: 12.5px;
-  color: var(--ink-3);
-}
-
-.chat__examples {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-.example {
-  padding: 7px 11px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  font-size: 12.5px;
-  color: var(--ink-2);
-  cursor: pointer;
-  transition:
-    border-color var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-
-.example:hover {
-  border-color: var(--ink-4);
-  color: var(--ink);
-}
-
-.turn {
-  padding: 18px 0;
+  height: 56px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(8px);
 }
 
-.turn:last-child {
-  border-bottom: none;
-}
-
-.turn__question {
-  font-size: 13.5px;
-  font-weight: 500;
-  line-height: 1.6;
-  color: var(--ink);
-}
-
-.turn__answer {
-  margin-top: 12px;
+.bar__title {
+  display: block;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 14px;
-  line-height: 1.75;
-  color: var(--ink);
+  font-weight: 500;
+  color: var(--ink-2);
 }
 
-.turn__meta {
+.bar__right {
   display: flex;
-  gap: 14px;
-  margin-top: 10px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  align-items: center;
+  gap: 10px;
+}
+
+.ds {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-full);
+  color: var(--ink-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ds:hover {
+  background: var(--surface-muted);
+}
+
+.ds select {
+  max-width: 160px;
+  border: 0;
+  background: none;
+  outline: none;
+  appearance: none;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ds.is-empty {
   color: var(--ink-4);
 }
 
-.turn__meta-live {
+.model {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   color: var(--ink-3);
 }
 
-.stages {
+/* ---------- 滚动区 ---------- */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  max-width: var(--chat-max);
+  margin: 0 auto;
+  padding: 28px 24px 8px;
+}
+
+/* ---------- 空态 ---------- */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 24px 0 72px;
+  text-align: center;
+}
+
+.hero__mark {
+  width: 40px;
+  height: 40px;
+  color: var(--ink);
+}
+
+.hero__title {
+  margin-top: 18px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.hero__sub {
+  margin-top: 10px;
+  max-width: 520px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--ink-3);
+}
+
+.hero__missing {
+  margin-top: 26px;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+
+.hero__link {
+  color: var(--focus);
+}
+
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  max-width: 620px;
+  margin-top: 34px;
+}
+
+.suggestion {
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.suggestion:hover {
+  background: var(--surface-muted);
+  border-color: var(--line-strong);
+}
+
+/* ---------- 消息 ---------- */
+
+.exchange {
+  padding: 10px 0 30px;
+}
+
+.bubble {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
+.bubble p {
+  max-width: 82%;
+  padding: 10px 16px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--surface-sunken);
+  font-size: 14.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.reply {
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.thinking {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  font-size: 12.5px;
+  gap: 9px;
   color: var(--ink-3);
+  font-size: 14px;
 }
 
-.stages__dot {
-  width: 5px;
-  height: 5px;
+.thinking__dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--ink-3);
   animation: pulse 1.1s ease-in-out infinite;
@@ -537,191 +673,335 @@ function formatCell(value: unknown): string {
   0%,
   100% {
     opacity: 0.25;
+    transform: scale(0.85);
   }
   50% {
     opacity: 1;
+    transform: scale(1);
   }
 }
 
-.clarify,
-.failure {
-  margin-top: 12px;
-  padding: 11px 13px;
-  border: 1px solid var(--line);
+.answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.note {
+  display: flex;
+  gap: 10px;
+  padding: 13px 15px;
   border-radius: var(--r-md);
-  background: var(--surface-muted);
+  font-size: 13.5px;
+  line-height: 1.6;
 }
 
-.failure {
-  border-color: transparent;
+.note--ask {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.note--error {
   background: var(--danger-soft);
-}
-
-.clarify__label,
-.failure__label {
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  color: var(--ink-4);
-}
-
-.failure__label {
   color: var(--danger);
 }
 
-.clarify__text,
-.failure__text {
-  margin-top: 5px;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: var(--ink-2);
+.note__title {
+  font-weight: 600;
 }
 
-.failure__retry {
+.note__text {
+  margin-top: 2px;
+}
+
+.note__action {
   margin-top: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
-.block {
-  margin-top: 14px;
+/* ---------- 结果表 ---------- */
+
+.result {
+  margin-top: 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  background: var(--surface);
   overflow: hidden;
 }
 
-.block__head {
+.result__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 12px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-muted);
-}
-
-.block__label {
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
+  font-size: 12.5px;
   color: var(--ink-3);
 }
 
-.sql {
-  margin: 0;
-  padding: 11px 13px;
-  max-height: 180px;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 1.65;
-  color: var(--ink-2);
-  white-space: pre-wrap;
-  word-break: break-word;
+.result__head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.results {
+.result__scroll {
   max-height: 320px;
   overflow: auto;
 }
 
-.results__table {
+.result__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
-.results__table th {
+.result__table th {
   position: sticky;
   top: 0;
-  padding: 7px 12px;
-  text-align: left;
-  font-weight: 500;
-  font-size: 11.5px;
-  color: var(--ink-3);
-  background: var(--surface-muted);
+  padding: 8px 14px;
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: left;
   white-space: nowrap;
 }
 
-.results__table td {
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--line);
+.result__table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--surface-sunken);
   color: var(--ink-2);
   white-space: nowrap;
 }
 
-.results__table tr:last-child td {
+.result__table tr:last-child td {
   border-bottom: none;
 }
 
-.results__table td.is-number {
+.result__table td.is-number {
   text-align: right;
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  color: var(--ink);
 }
 
-.composer {
-  padding: 14px 0 22px;
+/* ---------- SQL ---------- */
+
+.sql {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.sql__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.sql__summary::-webkit-details-marker {
+  display: none;
+}
+
+.sql__tag {
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 11.5px;
+}
+
+.sql__chevron {
+  transition: transform var(--dur) var(--ease);
+}
+
+.sql[open] .sql__chevron {
+  transform: rotate(180deg);
+}
+
+.sql__body {
+  position: relative;
   border-top: 1px solid var(--line);
 }
 
-.composer__box {
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
+.sql__body pre {
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.sql__copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
   background: var(--surface);
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.sql__copy:hover {
+  background: var(--surface-muted);
+}
+
+.meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 输入区 ---------- */
+
+.composer {
+  flex: none;
+  padding: 10px 24px 18px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, var(--canvas) 32%);
+}
+
+.composer__inner {
+  max-width: var(--chat-max);
+  margin: 0 auto;
+}
+
+.composer__box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 10px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-composer);
   transition: border-color var(--dur) var(--ease);
 }
 
 .composer__box:focus-within {
-  border-color: var(--ink);
+  border-color: var(--ink-4);
 }
 
 .composer__box.is-disabled {
-  background: var(--surface-muted);
+  opacity: 0.6;
 }
 
 .composer__input {
-  display: block;
   width: 100%;
-  padding: 11px 13px 4px;
+  max-height: 168px;
+  padding: 2px 0;
   border: 0;
-  background: transparent;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.6;
-  resize: none;
+  background: none;
   outline: none;
+  resize: none;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
 .composer__input::placeholder {
   color: var(--ink-4);
 }
 
-.composer__bar {
+.composer__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 6px 10px 8px 13px;
+  gap: 10px;
+}
+
+.composer__ds {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  background: var(--surface-muted);
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.send {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--action);
+  color: var(--action-ink);
+  cursor: pointer;
+  transition:
+    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+.send:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-4);
+  cursor: default;
+}
+
+.send:not(:disabled):hover {
+  background: var(--action-hover);
+}
+
+.send--stop {
+  background: var(--surface-sunken);
+  color: var(--ink-2);
 }
 
 .composer__hint {
-  font-size: 11px;
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11.5px;
   color: var(--ink-4);
 }
 
-.composer__actions {
-  display: flex;
-  gap: 8px;
+.composer__link {
+  color: var(--focus);
 }
 
-.composer__warn {
-  margin-top: 8px;
-  font-size: 11.5px;
-  color: var(--warn);
-}
+@media (max-width: 720px) {
+  .column {
+    padding: 20px 16px 4px;
+  }
 
-.composer__warn-link {
-  color: var(--warn);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  .composer {
+    padding: 8px 14px 14px;
+  }
+
+  .suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding: 8vh 0 4vh;
+  }
 }
 </style>

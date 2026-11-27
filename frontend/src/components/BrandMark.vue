@@ -1,19 +1,21 @@
 <template>
-  <svg class="mark" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+  <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <rect x="0" y="0" width="32" height="32" rx="9" fill="currentColor" />
     <path
-      d="M3.9 16.4V4.5a.7.7 0 0 1 .7-.7h10.8a.7.7 0 0 1 .7.7v11.9"
-      stroke="currentColor"
-      stroke-width="1.5"
+      d="M10.4 22.6V13.6c0-.9.7-1.6 1.6-1.6h8c.9 0 1.6.7 1.6 1.6v9"
+      stroke="#fff"
+      stroke-width="2.1"
       stroke-linecap="round"
       stroke-linejoin="round"
     />
+    <circle cx="20" cy="22.6" r="1.5" fill="#fff" />
   </svg>
 </template>
 
 <style scoped>
 .mark {
-  width: 20px;
-  height: 20px;
   display: block;
+  width: 24px;
+  height: 24px;
 }
 </style>

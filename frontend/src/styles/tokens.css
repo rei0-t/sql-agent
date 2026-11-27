@@ -1,61 +1,71 @@
 /* ============================================================
    设计令牌
-   基调：纸白画布 + 墨黑动作色，只有语义色带一点点色彩。
-   原则：不加渐变、不用彩色实心块、阴影只给浮层。
+   参照主流对话式产品：白画布 + 灰侧栏 + 近黑动作色，弱边框、大圆角。
+   原则：不用渐变、不用彩色实心块，色彩只出现在状态与焦点上。
    ============================================================ */
 
 :root {
   color-scheme: light;
 
   /* 画布与表面 */
-  --paper: #f5f4f1;
+  --paper: #ffffff;
+  --canvas: #ffffff;
+  --sidebar: #f9f9f9;
   --surface: #ffffff;
-  --surface-muted: #faf9f7;
-  --surface-sunken: #efede8;
+  --surface-muted: #f7f7f8;
+  --surface-sunken: #f0f0f2;
+  --surface-hover: #ededee;
+  --surface-active: #e7e7e9;
 
   /* 文字 */
-  --ink: #17181a;
-  --ink-2: #55575c;
-  --ink-3: #8b8c90;
-  --ink-4: #b5b4af;
+  --ink: #0d0d0d;
+  --ink-2: #4a4a52;
+  --ink-3: #8b8b96;
+  --ink-4: #b6b6c0;
 
   /* 线条 */
-  --line: #e7e4de;
-  --line-strong: #d6d2ca;
+  --line: #ececec;
+  --line-strong: #e0e0e2;
 
-  /* 动作色（主按钮 = 墨黑） */
-  --action: #17181a;
-  --action-hover: #2c2d31;
+  /* 动作色（主按钮 = 近黑） */
+  --action: #0d0d0d;
+  --action-hover: #2b2b2e;
   --action-ink: #ffffff;
 
   /* 语义色：低饱和，只用于状态点与标签 */
-  --ok: #1a6b46;
-  --ok-soft: #e9f2ec;
-  --warn: #8f5a06;
-  --warn-soft: #f8efe0;
-  --danger: #a92d22;
-  --danger-soft: #f9ecea;
-  --info: #3a5580;
-  --info-soft: #edf1f7;
-  --focus: #2c5bdd;
+  --ok: #14734a;
+  --ok-soft: #e9f5ee;
+  --warn: #8a5a05;
+  --warn-soft: #fbf1e2;
+  --danger: #b3261e;
+  --danger-soft: #fbecea;
+  --info: #2f4f7f;
+  --info-soft: #eef2f8;
+  --focus: #4d6bfe;
+  --accent: #4d6bfe;
 
   /* 形状 */
-  --r-sm: 4px;
-  --r-md: 6px;
-  --r-lg: 10px;
-  --shadow-float: 0 1px 2px rgba(23, 24, 26, 0.05), 0 18px 44px -16px rgba(23, 24, 26, 0.22);
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 24px;
+  --r-full: 999px;
+  --shadow-float: 0 2px 6px rgba(13, 13, 13, 0.04), 0 16px 40px -16px rgba(13, 13, 13, 0.18);
+  --shadow-composer: 0 2px 8px rgba(13, 13, 13, 0.05), 0 12px 32px -12px rgba(13, 13, 13, 0.12);
 
   /* 排版 */
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', sans-serif;
+    'Microsoft YaHei', 'Helvetica Neue', sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
   /* 布局 */
-  --sidebar-w: 212px;
-  --content-max: 1120px;
+  --sidebar-w: 264px;
+  --content-max: 1080px;
+  --chat-max: 768px;
 
-  /* 动效：只做 120–180ms 的 ease-out，不做弹跳 */
-  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
-  --dur: 140ms;
+  /* 动效：120–200ms ease-out，不做弹跳 */
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur: 160ms;
 }

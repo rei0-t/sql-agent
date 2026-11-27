@@ -174,7 +174,7 @@ function isSelf(item: UserAdmin): boolean {
 }
 
 .col-time {
-  width: 140px;
+  width: 160px;
 }
 
 .col-state {

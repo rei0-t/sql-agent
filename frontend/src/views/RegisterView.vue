@@ -55,15 +55,11 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="login">
-    <div class="login__brand">
-      <BrandMark class="login__mark" />
-      <span class="login__name">SQL-agent</span>
-    </div>
-
-    <section class="card">
-      <h1 class="card__title">创建账号</h1>
-      <p class="card__sub">注册后得到一个独立空间：别人看不到你的数据源、Key 和审计。</p>
+  <div class="auth">
+    <div class="auth__inner">
+      <BrandMark class="auth__mark" />
+      <h1 class="auth__title">创建账号</h1>
+      <p class="auth__sub">注册后会得到一个独立空间：别人看不到你的数据源、Key 和审计。</p>
 
       <form class="form" @submit.prevent="submit">
         <UiField label="用户名" required hint="字母、数字、下划线，3–64 位">
@@ -100,63 +96,50 @@ async function submit(): Promise<void> {
         <UiButton type="submit" block :loading="loading">创建账号</UiButton>
       </form>
 
-      <p class="card__switch">
-        已经有账号？
-        <RouterLink class="card__switch-link" :to="{ name: 'login' }">去登录</RouterLink>
-      </p>
-    </section>
+      <p class="auth__note">注册即登录。登录态保存在 httpOnly cookie 里，页面脚本读不到。</p>
 
-    <p class="login__version">v0.1.0</p>
+      <p class="auth__switch">
+        已经有账号？
+        <RouterLink class="auth__link" :to="{ name: 'login' }">去登录</RouterLink>
+      </p>
+    </div>
+
+    <p class="auth__version">v0.1.0</p>
   </div>
 </template>
 
 <style scoped>
-.login {
+.auth {
   position: relative;
   display: grid;
   place-items: center;
   min-height: 100vh;
   padding: 48px 20px;
-  background: var(--paper);
+  background: var(--canvas);
 }
 
-.login__brand {
-  position: absolute;
-  top: 22px;
-  left: 24px;
+.auth__inner {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  width: 340px;
+}
+
+.auth__mark {
+  width: 38px;
+  height: 38px;
   color: var(--ink);
 }
 
-.login__mark {
-  color: var(--ink);
-}
-
-.login__name {
-  font-size: 12.5px;
+.auth__title {
+  margin-top: 22px;
+  font-size: 27px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
 }
 
-.card {
-  width: 364px;
-  padding: 28px 28px 24px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-}
-
-.card__title {
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.card__sub {
-  margin-top: 6px;
-  font-size: 12.5px;
+.auth__sub {
+  margin-top: 8px;
+  font-size: 13.5px;
   line-height: 1.6;
   color: var(--ink-3);
 }
@@ -164,30 +147,37 @@ async function submit(): Promise<void> {
 .form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin-top: 22px;
+  gap: 16px;
+  margin-top: 30px;
 }
 
 .form__error {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--danger);
 }
 
-.card__switch {
-  margin-top: 16px;
-  padding-top: 14px;
+.auth__note {
+  margin-top: 20px;
+  padding-top: 16px;
   border-top: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-4);
+}
+
+.auth__switch {
+  margin-top: 10px;
+  font-size: 13px;
   color: var(--ink-3);
 }
 
-.card__switch-link {
+.auth__link {
   color: var(--ink);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-underline-offset: 3px;
 }
 
-.login__version {
+.auth__version {
   position: absolute;
   bottom: 20px;
   left: 24px;
