@@ -158,6 +158,17 @@ class Publisher:
             raise SystemExit("初始化后仍读不到 HEAD，稍等几秒重跑即可")
         return parent, base_tree
 
+    def remote_paths(self, owner: str, repo: str, tree_sha: str) -> set[str]:
+        """列出远端某个 tree 下的所有文件路径（用来算"哪些文件被删了"）。"""
+        response = self.request(
+            "GET", f"/repos/{owner}/{repo}/git/trees/{tree_sha}", params={"recursive": "1"}
+        )
+        if response.status_code != 200:
+            return set()
+        return {
+            item["path"] for item in response.json().get("tree", []) if item.get("type") == "blob"
+        }
+
     def upload_blobs(self, owner: str, repo: str, paths: list[Path]) -> dict[str, str]:
         """并发建 blob，返回 path -> sha。"""
         import concurrent.futures
@@ -205,6 +216,17 @@ class Publisher:
             {"path": rel, "mode": mode_for(ROOT / rel), "type": "blob", "sha": sha}
             for rel, sha in blobs.items()
         ]
+
+        # base_tree 是增量语义：没列出来的文件会被**原样保留**。
+        # 所以本地删掉的文件必须显式写一条 sha: null 的条目，否则远端永远删不掉。
+        if base_tree:
+            remote_paths = self.remote_paths(owner, repo, base_tree)
+            removed = sorted(remote_paths - set(blobs))
+            if removed:
+                print(f"删除 {len(removed)} 个远端文件：{', '.join(removed[:5])}{' …' if len(removed) > 5 else ''}")
+                tree_entries += [
+                    {"path": rel, "mode": "100644", "type": "blob", "sha": None} for rel in removed
+                ]
 
         tree_payload: dict = {"tree": tree_entries}
         if base_tree:
