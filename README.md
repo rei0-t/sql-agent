@@ -71,10 +71,12 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 **账号 · 登录与注册**
 
-- 登录：JWT（scrypt 口令哈希），前端有独立登录页
+- 登录：**httpOnly cookie 会话**（scrypt 口令哈希），前端不碰令牌，XSS 偷不走
+- 写操作走 **CSRF 双提交**：`sa_csrf` cookie + `X-CSRF-Token` 头；用 Bearer 头的脚本不受影响
+- 改密码：`POST /api/v1/auth/password`，改完自增 `token_version`，**其它设备的旧令牌立即失效**，当前窗口自动续签
 - 注册：`POST /api/v1/auth/register`，**每个新用户自动新建一个工作空间**，与别人的数据源 / 模型 Key / 审计完全隔离
 - `SQLAGENT_ALLOW_REGISTRATION=false` 可关闭注册（只保留初始化时创建的管理员）
-- 缺什么：找回密码、改密码、邮箱验证、管理员后台——都还没有
+- 管理员在「用户」页可以看所有账号、禁用/启用、重置口令（一次性临时密码，只显示一次）
 
 **开发者接口**
 
@@ -88,6 +90,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 - 每条记录自动带 `X-Request-ID`，响应头回传，前端截图能对上后端日志
 - 控制台可按动作 / 结果 / 关键字筛选，点开看完整 detail（SQL、耗时、token、重试次数）
 - 接口只有 GET：审计只追加，不提供修改与删除
+- 归档：`python scripts/archive_audit.py --days 180`（导出 JSONL.gz 后再删，支持 `--dry-run`）
 
 **工程加固**
 
@@ -100,7 +103,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 | 项 | 结果 |
 |---|---|
-| 后端测试 | **136 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、语义层隔离 7 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
+| 后端测试 | **152 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、语义层隔离 7 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
 | 端到端 | 登录 → 建源 → 测试 → 取结构：5 张表 / 20,000 订单 / 67 ms |
 | **MySQL 全链路** | MySQL 8.1：连接 5ms → 5 张表 / 8,000 订单 / 16,133 明细 → 「2026 Q3 华东 GMV」= `12,628,663.50`（与手算**逐位一致**）→ 品类 Top3 三个数字全对 |
 | 只读边界 | 用 `SELECT` only 的账号：查询正常；`INSERT` 被 MySQL 拒绝（`ERROR 1142`） |
@@ -323,8 +326,13 @@ deploy/           Dockerfile 与 compose
 | GET | `/api/v1/health` | 健康检查（免鉴权） |
 | GET | `/api/v1/auth/config` | 是否开放注册（免鉴权） |
 | POST | `/api/v1/auth/register` | 注册（自动创建独立工作空间） |
-| POST | `/api/v1/auth/login` | 登录取 token |
+| POST | `/api/v1/auth/login` | 登录：下发 httpOnly 会话 cookie + CSRF cookie（body 里也返回 token，供脚本用） |
+| POST | `/api/v1/auth/logout` | 退出：清 cookie |
+| POST | `/api/v1/auth/password` | 改密码（旧令牌全部失效，当前会话续签） |
 | GET | `/api/v1/auth/me` | 当前用户 |
+| GET | `/api/v1/users` | **管理员**：账号列表 |
+| POST | `/api/v1/users/{id}/disable` \| `/enable` | **管理员**：禁用 / 启用（禁用会作废在线会话） |
+| POST | `/api/v1/users/{id}/reset-password` | **管理员**：重置为一次性临时口令 |
 | GET/PUT | `/api/v1/settings/llm` | 读 / 写模型配置（BYOK），Key 只回显末四位 |
 | POST | `/api/v1/settings/llm/test` | 测试模型连通性 |
 | GET/POST | `/api/v1/keys` | 开发者 API Key 列表 / 创建（明文只返回一次） |
@@ -351,7 +359,7 @@ deploy/           Dockerfile 与 compose
 | P1 | 上下文装配、语义层、两段式生成、只读闸门、自纠错、SSE 对话、20 题评测 | ✅ |
 | P1.5 | 审计层（独立事务 + request id + 控制台）、Alembic 迁移、归属校验收敛、缓存上界 | ✅ |
 | P2 | 变更通道：dry-run 预览、diff 确认、执行、回执、反向 SQL、30 题写评测 | ⏸ 本期不做 |
-| P3 | RBAC、L3 审批、审计归档、JWT 改 cookie、列级权限 | ⏳ |
+| P3 | RBAC（角色权限细化）、L3 审批、列级权限、邮箱验证 | ⏳ |
 | P4 | 文档站、多架构镜像、release 流程、英文 README | ⏳ |
 | P5 | iframe 嵌入、OpenAPI 描述、MCP server、图表 | ⏳ |
 
@@ -367,11 +375,13 @@ P2 不是"还没做"，是**这一期明确不做**：没有 `/mutation` 路由�
 
 | 面 | 做法 | 开关 |
 |---|---|---|
+| **会话被盗** | 令牌放在 **httpOnly cookie**，JS 读不到，XSS 拿不到；写操作要求 CSRF 双提交；HTTPS 部署时打开 `Secure` | `SQLAGENT_COOKIE_SECURE=true`（走 HTTPS 时） |
 | **BYOK 的 SSRF** | 保存/测试 `base_url` 时解析域名，拒绝一切非公网地址（`127.0.0.1`、`169.254.169.254` 云元数据、`10/8` 等），含 IPv4-mapped IPv6 | `SQLAGENT_LLM_ALLOW_PRIVATE_HOSTS=true` 放行（本地跑 Ollama/vLLM 时） |
 | **登录爆破** | 同一 IP 与同一用户名各一个滑动窗口，超限返回 429（带 `Retry-After`），并记一条 `rate_limited` 审计。**硬锁定**：超限后正确密码也拒绝——否则限流形同虚设；代价是知道用户名的人可以把你锁 5 分钟 | `SQLAGENT_LOGIN_RATELIMIT_ENABLED=false` 关闭 |
 | **越权读** | 所有数据源查询按 `workspace_id` 过滤，「不存在」与「无权」统一返回 404，避免用状态码探测 id | — |
 | **注册刷号** | 同一 IP 每小时最多建 5 个账号（按**成功建号**计数，重名/格式错不占额度），超限 429 | `SQLAGENT_REGISTER_RATELIMIT_ENABLED=false` 关闭 |
 | **Prompt 注入** | 表名/列注释/采样值先清洗（折叠换行、拆掉分隔符、截断）再进 prompt；上下文用显式边界标记为"数据而非指令"；用户问题命中典型越狱话术时记 `injection_flags` 并在 `done` 事件里透出 | `SQLAGENT_STRICT_TABLE_ALLOWLIST=true` 进一步把可查表限制为"给模型看过的表" |
+| **改密码后旧会话** | `token_version` 自增，已签发的令牌全部失效；禁用账号同样立即作废在线会话 | — |
 
 关于注入，要**如实说明它的边界**：NL2SQL 的注入**无法提升权限**——模型只能输出一条 SELECT，闸门限表、连接只读、账号只有 SELECT。
 它能做到的最坏情况是**让模型查了用户本不该看的表**，以及让结论说假话。真正的行级/列级授权必须由数据库账号承担，
@@ -379,7 +389,7 @@ P2 不是"还没做"，是**这一期明确不做**：没有 `/mutation` 路由�
 
 仍然建议：不要用生产主库的超级账号接入、保留备份、把它当成一个"能读全库的助手"来评估权限风险。因配置不当（例如误用了高权限账号）造成的数据泄露由使用者承担。
 
-还**没有**做的：JWT 存 localStorage（XSS 可窃取）、审计日志自动归档、按用户的行级权限。这几项在 Roadmap 的 P3。
+还**没有**做的：按用户的行级/列级权限（要配数据库视图）、邮箱验证与自助找回密码、审计归档的定时任务（脚本已有，需自己加 cron）。
 
 ## 贡献
 

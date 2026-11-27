@@ -36,6 +36,7 @@ def test_login_and_me(client: TestClient) -> None:
 
 
 def test_me_requires_token(client: TestClient) -> None:
+    client.cookies.clear()  # 清掉登录用例留下的会话 cookie
     assert client.get("/api/v1/auth/me").status_code == 401
 
 

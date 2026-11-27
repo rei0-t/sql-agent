@@ -26,10 +26,10 @@ BACKEND = Path(__file__).resolve().parent.parent / "backend"
 if (BACKEND / "app").is_dir():
     sys.path.insert(0, str(BACKEND))
 
-from app.config import settings  # noqa: E402
-from app.engine.context import build_context  # noqa: E402
-from app.engine.semantics import load_semantics  # noqa: E402
-from app.models import Datasource  # noqa: E402
+from app.config import settings
+from app.engine.context import build_context
+from app.engine.semantics import load_semantics
+from app.models import Datasource
 
 
 def _from_meta(datasource_id: int) -> Datasource:

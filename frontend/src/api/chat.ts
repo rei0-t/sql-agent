@@ -1,4 +1,4 @@
-import { getToken } from './token';
+import { csrfToken } from './session';
 
 export interface ChatConfig {
   model: string;
@@ -13,9 +13,7 @@ export interface ChatEventHandlers {
 }
 
 export async function fetchChatConfig(): Promise<ChatConfig> {
-  const response = await fetch('/api/v1/chat/config', {
-    headers: { Authorization: `Bearer ${getToken() ?? ''}` },
-  });
+  const response = await fetch('/api/v1/chat/config', { credentials: 'include' });
   if (!response.ok) {
     throw new Error(`获取对话配置失败（HTTP ${response.status}）`);
   }
@@ -35,7 +33,7 @@ function parseBlock(block: string): { event: string; data: string } {
   return { event, data };
 }
 
-/** POST + 手写 SSE 解析：EventSource 不支持 POST，也不能带 Authorization 头。 */
+/** POST + 手写 SSE 解析：EventSource 不支持 POST，也不能自定义请求头。 */
 export async function streamChat(
   payload: { datasource_id: number; question: string },
   handlers: ChatEventHandlers,
@@ -43,9 +41,10 @@ export async function streamChat(
 ): Promise<void> {
   const response = await fetch('/api/v1/chat/stream', {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getToken() ?? ''}`,
+      'X-CSRF-Token': csrfToken(),
     },
     body: JSON.stringify(payload),
     signal,

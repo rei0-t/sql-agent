@@ -15,7 +15,7 @@ BACKEND = Path(__file__).resolve().parent.parent / "backend"
 if (BACKEND / "app").is_dir():
     sys.path.insert(0, str(BACKEND))
 
-from app.engine.guard import GuardError, check  # noqa: E402
+from app.engine.guard import GuardError, check
 
 ALLOWED = {"orders", "customers"}
 CASES = [

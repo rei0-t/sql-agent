@@ -69,6 +69,7 @@ def test_stream_emits_full_sequence(
 
 
 def test_stream_requires_auth(client: TestClient, sqlite_datasource: dict) -> None:
+    client.cookies.clear()  # 不带任何凭证
     response = client.post(
         "/api/v1/chat/stream", json={"datasource_id": sqlite_datasource["id"], "question": "hi"}
     )

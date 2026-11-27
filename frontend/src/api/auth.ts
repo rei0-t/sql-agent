@@ -21,6 +21,13 @@ export async function register(payload: RegisterPayload): Promise<LoginResponse>
   return data;
 }
 
+export async function changePassword(payload: {
+  current_password: string;
+  new_password: string;
+}): Promise<void> {
+  await client.post('/auth/password', payload);
+}
+
 export async function fetchAuthConfig(): Promise<AuthConfig> {
   const { data } = await client.get<AuthConfig>('/auth/config');
   return data;

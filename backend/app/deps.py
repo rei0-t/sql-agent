@@ -11,9 +11,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import csrf
 from app.apikeys import hash_api_key, looks_like_api_key
 from app.audit import Actor, Auditor
 from app.config import settings
+from app.csrf import SAFE_METHODS, SESSION_COOKIE
 from app.db import SessionLocal
 from app.engine.llm import ChatModel, OpenAICompatibleModel, get_default_model
 from app.models import ApiKey, LlmSetting, User, utcnow
@@ -58,13 +60,39 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+def _session_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None,
+) -> tuple[str | None, bool]:
+    """取出凭证，返回 (token, 是否来自 cookie)。
+
+    Authorization 头优先（API Key、脚本、curl 都走这条）；
+    没有头才读 cookie（浏览器）。
+    """
+    if credentials is not None:
+        return credentials.credentials, False
+    token = request.cookies.get(SESSION_COOKIE)
+    return (token, True) if token else (None, False)
+
+
+def _check_csrf(request: Request, from_cookie: bool) -> None:
+    """cookie 认证 + 写操作 → 必须带匹配的 CSRF 头（双提交）。"""
+    if not from_cookie or request.method in SAFE_METHODS:
+        return
+    if not csrf.matches(request.headers.get(csrf.CSRF_HEADER), request.cookies.get(csrf.CSRF_COOKIE)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "CSRF 校验失败，请刷新页面后重试")
+
+
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    if credentials is None:
+    token, from_cookie = _session_token(request, credentials)
+    if token is None:
         raise UNAUTHORIZED
-    payload = decode_access_token(credentials.credentials)
+    _check_csrf(request, from_cookie)
+    payload = decode_access_token(token)
     if not payload or "sub" not in payload:
         raise UNAUTHORIZED
     try:
@@ -75,18 +103,22 @@ async def get_current_user(
     user = await session.get(User, user_id)
     if user is None or not user.is_active:
         raise UNAUTHORIZED
+    # 改过密码的老令牌立即失效
+    if int(payload.get("ver", 0)) != user.token_version:
+        raise UNAUTHORIZED
     return user
 
 
 async def get_principal(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     session: AsyncSession = Depends(get_session),
 ) -> Principal:
-    """同时接受登录令牌与开发者 API Key。"""
-    if credentials is None:
+    """同时接受会话（cookie 或 Bearer）、开发者 API Key。"""
+    token, from_cookie = _session_token(request, credentials)
+    if token is None:
         raise UNAUTHORIZED
-
-    token = credentials.credentials
+    _check_csrf(request, from_cookie)
     if looks_like_api_key(token):
         record = await session.scalar(
             select(ApiKey).where(ApiKey.key_hash == hash_api_key(token))

@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # 安全
     secret_key: str = "dev-only-change-me-before-any-real-use"
     access_token_ttl_minutes: int = 720
+    # 会话放在 httpOnly cookie 里；HTTPS 部署时把 cookie_secure 打开
+    cookie_secure: bool = False
+    # 审计保留天数（归档脚本用）
+    audit_retention_days: int = 180
 
     # 首次启动时创建的管理员
     admin_username: str = "admin"

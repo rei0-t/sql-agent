@@ -21,12 +21,11 @@ if (BACKEND / "app").is_dir():
     sys.path.insert(0, str(BACKEND))
     sys.path.insert(0, str(BACKEND / "migrations"))
 
-from alembic import command  # noqa: E402
-from alembic.config import Config  # noqa: E402
-from sqlalchemy import inspect  # noqa: E402
-from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
-
-from app.config import settings  # noqa: E402
+from alembic import command
+from alembic.config import Config
+from app.config import settings
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import create_async_engine
 
 BASELINE = "0001_initial"
 

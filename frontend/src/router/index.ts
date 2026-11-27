@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth';
 declare module 'vue-router' {
   interface RouteMeta {
     requiresAuth?: boolean;
+    adminOnly?: boolean;
     title?: string;
     subtitle?: string;
   }
@@ -54,6 +55,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/AuditView.vue'),
         meta: { title: '审计', subtitle: '操作轨迹与合规记录' },
       },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('@/views/UsersView.vue'),
+        meta: { title: '用户', subtitle: '账号、状态与口令重置', adminOnly: true },
+      },
     ],
   },
   {
@@ -72,23 +79,23 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
+  const isAuthPage = to.name === 'login' || to.name === 'register';
 
-  if (to.meta.requiresAuth === false) {
-    const isAuthPage = to.name === 'login' || to.name === 'register';
-    return auth.isAuthenticated && isAuthPage ? { name: 'datasources' } : true;
+  // 会话在 httpOnly cookie 里，前端只能通过 /me 判断是否已登录（一次冷启动只问一遍）
+  if (!auth.user) {
+    await auth.ensureUser();
   }
 
-  if (!auth.isAuthenticated) {
+  if (isAuthPage) {
+    return auth.isAuthenticated ? { name: 'datasources' } : true;
+  }
+
+  if (to.meta.requiresAuth !== false && !auth.isAuthenticated) {
     return { name: 'login' };
   }
 
-  if (!auth.user) {
-    try {
-      await auth.ensureUser();
-    } catch {
-      auth.logout();
-      return { name: 'login' };
-    }
+  if (to.meta.adminOnly && !auth.isAdmin) {
+    return { name: 'datasources' };
   }
 
   return true;

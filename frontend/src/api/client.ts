@@ -2,21 +2,29 @@ import axios, { type AxiosError, type AxiosInstance } from 'axios';
 
 import type { ApiErrorBody } from '@/types';
 
-import { clearToken, getToken } from './token';
+import { csrfToken } from './session';
 
-/** 令牌失效时广播的事件，由 main.ts 统一处理跳转。 */
+/** 会话失效时广播的事件，由 main.ts 统一处理跳转。 */
 export const UNAUTHORIZED_EVENT = 'sqlagent:unauthorized';
+
+const SAFE_METHODS = new Set(['get', 'head', 'options']);
 
 const client: AxiosInstance = axios.create({
   baseURL: '/api/v1',
   timeout: 30_000,
+  // 会话在 httpOnly cookie 里，跨源/同源请求都要带上
+  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
 
 client.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  // 写操作带上双提交 CSRF 令牌（服务端只对 cookie 认证的写操作校验）
+  const method = (config.method ?? 'get').toLowerCase();
+  if (!SAFE_METHODS.has(method)) {
+    const token = csrfToken();
+    if (token) {
+      config.headers['X-CSRF-Token'] = token;
+    }
   }
   return config;
 });
@@ -24,9 +32,8 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiErrorBody>) => {
-    const isLoginRequest = error.config?.url?.includes('/auth/login') ?? false;
-    if (error.response?.status === 401 && !isLoginRequest) {
-      clearToken();
+    const isAuthAttempt = /\/auth\/(login|register|config)$/.test(error.config?.url ?? '');
+    if (error.response?.status === 401 && !isAuthAttempt) {
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
     return Promise.reject(error);

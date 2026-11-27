@@ -17,7 +17,7 @@ app.use(router);
 // 接口返回 401 时清理登录态并回到登录页
 window.addEventListener(UNAUTHORIZED_EVENT, () => {
   const auth = useAuthStore(pinia);
-  auth.logout();
+  auth.clearSession();
   if (router.currentRoute.value.name !== 'login') {
     void router.replace({ name: 'login' });
   }

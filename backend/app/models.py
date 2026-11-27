@@ -66,6 +66,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(32), default="admin")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 改密码时自增，让已签发的令牌立刻失效
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 

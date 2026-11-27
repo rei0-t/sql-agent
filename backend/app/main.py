@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api import audit as audit_api
-from app.api import auth, chat, datasources, health, keys, query
+from app.api import auth, chat, datasources, health, keys, query, users
 from app.api import settings as settings_api
 from app.config import settings
 from app.db import init_db
@@ -51,6 +51,7 @@ app.include_router(settings_api.router, prefix="/api/v1")
 app.include_router(keys.router, prefix="/api/v1")
 app.include_router(query.router, prefix="/api/v1")
 app.include_router(audit_api.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
 
 
 @app.api_route(

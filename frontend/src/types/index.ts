@@ -13,6 +13,21 @@ export interface User {
   workspace_id?: EntityId;
 }
 
+/** 管理员看到的用户信息（不含任何凭证） */
+export interface UserAdmin {
+  id: number;
+  username: string;
+  role: string;
+  is_active: boolean;
+  workspace_id: number;
+  created_at: string;
+}
+
+export interface TempPassword {
+  password: string;
+  username: string;
+}
+
 export interface LoginPayload {
   username: string;
   password: string;

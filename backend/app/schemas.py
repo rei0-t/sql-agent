@@ -25,6 +25,31 @@ class AuthConfigOut(BaseModel):
     allow_registration: bool
 
 
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class UserAdminOut(BaseModel):
+    """管理员视角的用户信息（不含口令哈希）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    role: str
+    is_active: bool
+    workspace_id: int
+    created_at: datetime
+
+
+class TempPasswordOut(BaseModel):
+    """重置密码时返回一次性的临时口令。"""
+
+    password: str
+    username: str
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

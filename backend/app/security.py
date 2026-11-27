@@ -62,10 +62,16 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(dk, expected)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, token_version: int = 0) -> str:
+    """签发访问令牌。
+
+    ``token_version`` 与用户表上的字段对齐：改密码时自增，从而让**旧令牌立即失效**
+    （JWT 本身无状态，不这样做的话"改密码"只是心理安慰）。
+    """
     now = int(time.time())
     payload: dict[str, Any] = {
         "sub": subject,
+        "ver": token_version,
         "iat": now,
         "exp": now + settings.access_token_ttl_minutes * 60,
     }

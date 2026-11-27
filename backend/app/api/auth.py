@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import csrf
 from app.audit import Actor
 from app.audit import record as audit_record
 from app.config import settings
@@ -31,6 +32,7 @@ from app.ratelimit import SlidingWindowLimiter
 from app.schemas import (
     AuthConfigOut,
     LoginRequest,
+    PasswordChangeIn,
     RegisterRequest,
     TokenResponse,
     UserOut,
@@ -68,11 +70,23 @@ def reset_limits() -> None:
     _register_limiter.clear()
 
 
-def _issue(user: User) -> TokenResponse:
-    return TokenResponse(
-        access_token=create_access_token(str(user.id)),
-        user=UserOut.model_validate(user),
-    )
+def _issue(response: Response, user: User) -> TokenResponse:
+    """签发令牌并写会话 cookie。
+
+    浏览器走 httpOnly cookie（JS 读不到，XSS 偷不走）；
+    脚本/CI 仍可直接用响应体里的 token 走 Authorization 头。
+    """
+    token = create_access_token(str(user.id), user.token_version)
+    options = {
+        "max_age": settings.access_token_ttl_minutes * 60,
+        "path": "/",
+        "samesite": "lax",
+        "secure": settings.cookie_secure,
+    }
+    response.set_cookie(csrf.SESSION_COOKIE, token, httponly=True, **options)
+    # CSRF cookie 必须能被 JS 读到，否则前端没法把它放进请求头
+    response.set_cookie(csrf.CSRF_COOKIE, csrf.new_token(), httponly=False, **options)
+    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 
 @router.get("/config", response_model=AuthConfigOut)
@@ -85,6 +99,7 @@ async def auth_config() -> AuthConfigOut:
 async def login(
     body: LoginRequest,
     request: Request,
+    response: Response,
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     ip_key = f"ip:{_client_ip(request)}"
@@ -135,7 +150,42 @@ async def login(
         target_type="user",
         target_id=user.id,
     )
-    return _issue(user)
+    return _issue(response, user)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response) -> None:
+    """清掉会话与 CSRF cookie。"""
+
+    response.delete_cookie(csrf.SESSION_COOKIE, path="/")
+    response.delete_cookie(csrf.CSRF_COOKIE, path="/")
+
+
+@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: PasswordChangeIn,
+    response: Response,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """改密码：校验旧密码 → 换哈希 → 自增 token_version（旧令牌全部失效）→ 续签当前会话。"""
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前密码不正确")
+    if body.current_password == body.new_password:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "新密码不能与当前密码相同")
+
+    user.password_hash = hash_password(body.new_password)
+    user.token_version += 1
+    await session.commit()
+
+    await audit_record(
+        "auth.password_change",
+        actor=Actor.of(user),
+        target_type="user",
+        target_id=user.id,
+    )
+    # 其它设备上的旧令牌已失效；当前这个再签一张，避免改完密码自己被踢下线
+    _issue(response, user)
 
 
 @router.post(
@@ -146,6 +196,7 @@ async def login(
 async def register(
     body: RegisterRequest,
     request: Request,
+    response: Response,
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
     if not settings.allow_registration:
@@ -206,7 +257,7 @@ async def register(
         target_id=user.id,
         detail={"workspace_id": workspace.id},
     )
-    return _issue(user)
+    return _issue(response, user)
 
 
 @router.get("/me", response_model=UserOut)

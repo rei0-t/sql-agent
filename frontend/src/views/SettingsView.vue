@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 
 import { extractErrorMessage } from '@/api/client';
+import { changePassword } from '@/api/auth';
 import {
   createApiKey,
   fetchLlmSetting,
@@ -162,6 +163,40 @@ const curlSample = computed(() => {
   -H "Content-Type: application/json" \\
   -d '{"datasource_id": 1, "question": "上个月华东区的 GMV 是多少"}'`;
 });
+
+// ---------------- 修改密码 ----------------
+
+const passwordForm = reactive({ current: '', next: '', confirm: '' });
+const changingPassword = ref(false);
+
+async function submitPassword(): Promise<void> {
+  if (changingPassword.value) {
+    return;
+  }
+  if (passwordForm.next.length < 8) {
+    pushToast('新密码至少 8 位', 'error');
+    return;
+  }
+  if (passwordForm.next !== passwordForm.confirm) {
+    pushToast('两次输入的新密码不一致', 'error');
+    return;
+  }
+  changingPassword.value = true;
+  try {
+    await changePassword({
+      current_password: passwordForm.current,
+      new_password: passwordForm.next,
+    });
+    passwordForm.current = '';
+    passwordForm.next = '';
+    passwordForm.confirm = '';
+    pushToast('密码已更新，其它设备需重新登录', 'ok');
+  } catch (error) {
+    pushToast(extractErrorMessage(error, '修改密码失败'), 'error');
+  } finally {
+    changingPassword.value = false;
+  }
+}
 </script>
 
 <template>
@@ -284,6 +319,59 @@ const curlSample = computed(() => {
           </div>
           <pre class="usage__code">{{ curlSample }}</pre>
         </div>
+      </div>
+    </section>
+
+    <section class="panel block">
+      <header class="block__head">
+        <div>
+          <h2 class="block__title">修改密码</h2>
+          <p class="block__desc">
+            改完会立即让其它设备上的登录失效，当前窗口保持登录。
+          </p>
+        </div>
+      </header>
+
+      <div class="block__body">
+        <form class="password-form" @submit.prevent="submitPassword">
+          <UiField class="form-grid--full" label="当前密码" required>
+            <UiInput
+              v-model="passwordForm.current"
+              type="password"
+              autocomplete="current-password"
+              placeholder="输入当前密码"
+            />
+          </UiField>
+
+          <UiField label="新密码" hint="至少 8 位" required>
+            <UiInput
+              v-model="passwordForm.next"
+              type="password"
+              autocomplete="new-password"
+              placeholder="设置新密码"
+            />
+          </UiField>
+
+          <UiField label="确认新密码" required>
+            <UiInput
+              v-model="passwordForm.confirm"
+              type="password"
+              autocomplete="new-password"
+              placeholder="再输一次"
+            />
+          </UiField>
+
+          <div class="form-grid--full actions">
+            <UiButton
+              type="submit"
+              size="sm"
+              :loading="changingPassword"
+              :disabled="!passwordForm.current || !passwordForm.next"
+            >
+              更新密码
+            </UiButton>
+          </div>
+        </form>
       </div>
     </section>
   </div>
@@ -430,5 +518,18 @@ const curlSample = computed(() => {
   font-size: 11.5px;
   line-height: 1.7;
   color: var(--ink-2);
+}
+
+.password-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  max-width: 640px;
+}
+
+@media (max-width: 720px) {
+  .password-form {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

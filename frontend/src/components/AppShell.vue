@@ -10,17 +10,22 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 
-const nav = [
-  { name: 'datasources', label: '数据源', badge: '' },
-  { name: 'chat', label: '对话', badge: '' },
-  { name: 'audit', label: '审计', badge: '' },
-  { name: 'settings', label: '设置', badge: '' },
-] as const;
+const nav = computed(() => {
+  const items = [
+    { name: 'datasources', label: '数据源', badge: '' },
+    { name: 'chat', label: '对话', badge: '' },
+    { name: 'audit', label: '审计', badge: '' },
+    // 用户管理只对管理员显示
+    ...(auth.isAdmin ? [{ name: 'users', label: '用户', badge: '' }] : []),
+    { name: 'settings', label: '设置', badge: '' },
+  ];
+  return items;
+});
 
 const initial = computed(() => (auth.user?.username ?? '?').slice(0, 1).toUpperCase());
 
-function logout(): void {
-  auth.logout();
+async function logout(): Promise<void> {
+  await auth.logout();
   void router.replace({ name: 'login' });
 }
 </script>
