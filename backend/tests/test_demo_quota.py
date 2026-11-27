@@ -158,3 +158,36 @@ def test_quota_exhaustion_is_audited(
     ).json()
     reasons = {(item["detail"] or {}).get("reason") for item in page["items"]}
     assert "quota_exhausted" in reasons
+
+
+def test_byok_is_not_limited(client: TestClient, monkeypatch, demo_on, fake_model) -> None:
+    """自己配了 Key 的人花的是自己的钱，不该被站点额度限制。"""
+    monkeypatch.setattr(settings, "chat_max_questions", 1)
+
+    _, headers = _register(client)
+    ds_id = client.get("/api/v1/datasources", headers=headers).json()[0]["id"]
+
+    saved = client.put(
+        "/api/v1/settings/llm",
+        headers=headers,
+        json={
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+            "api_key": "sk-own-key",
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    for index in range(3):
+        assert _ask(client, headers, ds_id, f"q{index}").status_code == 200
+    assert client.get("/api/v1/chat/config", headers=headers).json()["remaining_questions"] is None
+
+
+def test_shared_key_still_limited(client: TestClient, monkeypatch, demo_on, fake_model) -> None:
+    """没配 Key 的人用的是公共 Key，照常扣额度。"""
+    monkeypatch.setattr(settings, "chat_max_questions", 1)
+
+    _, headers = _register(client)
+    ds_id = client.get("/api/v1/datasources", headers=headers).json()[0]["id"]
+    assert _ask(client, headers, ds_id, "q1").status_code == 200
+    assert _ask(client, headers, ds_id, "q2").status_code == 429

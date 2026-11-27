@@ -29,8 +29,7 @@ from app.deps import (
 )
 from app.engine.llm import ChatModel
 from app.engine.pipeline import Answer, answer_question
-from app.models import Workspace
-from app.quota import consume, remaining
+from app.quota import consume, remaining_for
 from app.schemas import ChatConfigOut, ChatFeedbackIn, ChatRequest
 from app.store import owned_datasource, read_password, snapshot
 
@@ -50,12 +49,7 @@ async def chat_config(
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ) -> ChatConfigOut:
-    workspace = await session.get(Workspace, principal.workspace_id)
-    remaining_questions = (
-        None
-        if principal.is_admin or workspace is None
-        else remaining(workspace.questions_used)
-    )
+    remaining_questions = await remaining_for(session, principal)
     return ChatConfigOut(
         model=getattr(model, "name", settings.llm_model),
         configured=bool(getattr(model, "configured", False)),
