@@ -26,7 +26,7 @@ from app import csrf
 from app.audit import Actor
 from app.audit import record as audit_record
 from app.config import settings
-from app.deps import get_current_user, get_session
+from app.deps import get_current_user, get_session, verify_csrf
 from app.models import User, Workspace
 from app.ratelimit import SlidingWindowLimiter
 from app.schemas import (
@@ -154,8 +154,12 @@ async def login(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(response: Response) -> None:
-    """清掉会话与 CSRF cookie。"""
+async def logout(response: Response, _: None = Depends(verify_csrf)) -> None:
+    """清掉会话与 CSRF cookie。
+
+    这里不要求登录（没登录也能安全地"退出"），但**要校验 CSRF**：
+    否则第三方页面 POST 一下就能把用户踢下线。
+    """
 
     response.delete_cookie(csrf.SESSION_COOKIE, path="/")
     response.delete_cookie(csrf.CSRF_COOKIE, path="/")

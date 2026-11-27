@@ -46,9 +46,16 @@ def test_logout_clears_session(client: TestClient) -> None:
     _login(client)
     assert client.get("/api/v1/auth/me").status_code == 200
 
-    out = client.post("/api/v1/auth/logout")
+    out = client.post("/api/v1/auth/logout", headers={"X-CSRF-Token": _csrf(client)})
     assert out.status_code == 204
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_logout_requires_csrf(client: TestClient) -> None:
+    """跨站 POST 一下就能把人踢下线，也是 CSRF，不能因为它不要求登录就放行。"""
+    _login(client)
+    assert client.post("/api/v1/auth/logout").status_code == 403
+    assert client.get("/api/v1/auth/me").status_code == 200
 
 
 # ---------------- CSRF ----------------

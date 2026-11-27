@@ -83,6 +83,18 @@ def _check_csrf(request: Request, from_cookie: bool) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "CSRF 校验失败，请刷新页面后重试")
 
 
+async def verify_csrf(request: Request) -> None:
+    """只做 CSRF 校验，不要求登录态。
+
+    给 ``/auth/logout`` 这类"没有登录也能调"的写接口用：
+    跨站 POST 过来强行登出同样属于 CSRF，不能因为它不需要鉴权就跳过校验。
+    """
+    token = request.cookies.get(SESSION_COOKIE)
+    if token is None:
+        return
+    _check_csrf(request, from_cookie=True)
+
+
 async def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
