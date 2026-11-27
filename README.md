@@ -102,6 +102,8 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 |---|---|
 | 后端测试 | **95 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
 | 端到端 | 登录 → 建源 → 测试 → 取结构：5 张表 / 20,000 订单 / 67 ms |
+| **MySQL 全链路** | MySQL 8.1：连接 5ms → 5 张表 / 8,000 订单 / 16,133 明细 → 「2026 Q3 华东 GMV」= `12,628,663.50`（与手算**逐位一致**）→ 品类 Top3 三个数字全对 |
+| 只读边界 | 用 `SELECT` only 的账号：查询正常；`INSERT` 被 MySQL 拒绝（`ERROR 1142`） |
 | 真实问答 | 「2026 Q3 华东区 GMV」→ `15,579,548.46`，与手算一致，11.6s / 4.3k token |
 | 开发者接口 | 用 `sa_live_…` 调 `/query`，12.1s 返回 `{sql, columns, rows, summary, tokens}` |
 | 审计链路 | 一次问答自动落 `chat.read`，带 request_id / SQL / token / 耗时；失败与被限流的登录都留痕 |
@@ -110,7 +112,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 | 迁移 | 空库 `upgrade` 建 6 张表；老库自动 stamp；`alembic check` 与模型零差异 |
 | 评测 | 20 题演示集，`qwen-plus`，EX 见下方「评测」一节 |
 | 前端构建 | `vue-tsc --noEmit` 0 error + `vite build` 成功，产物 gzip 71 KB |
-| 未验证 | Docker 镜像（本机没有 Docker）、MySQL/PostgreSQL 真实连通（无实例，仅单测覆盖构造逻辑） |
+| 未验证 | **PostgreSQL**（本机无实例，连握手都没跑过）、**Docker 镜像**（本机无 Docker，从未构建）、任意 schema 的准确率（见下） |
 
 ## 评测
 
@@ -174,11 +176,17 @@ cd frontend && pnpm install && pnpm dev              # http://127.0.0.1:5173
 
 ```bash
 python scripts/seed_demo.py            # 生成 data/demo/shop.db：2 万笔订单的中文电商库
+
+# 或者：MySQL 版（会 DROP 并重建 sqlagent_demo 库，只动这个名字）
+python scripts/seed_mysql_demo.py --user root --password 你的密码
 ```
 
 这个库里**故意埋了坑**：5% 的客户是测试账号、8% 的订单已取消/退款、退款单独一张表。
 直接用 `SUM(pay_amount)` 算出来的 GMV 会比正确口径高约 16% —— 正好用来验证语义层有没有生效。
 在「数据源」页新建一个 SQLite 数据源，路径填 `data/demo/shop.db` 即可。
+
+MySQL 版会顺便建一个**只有 SELECT 权限**的账号 `sqlagent_ro`，并打印标准答案
+（GMV / 品类 Top3），可以直接拿去和 SQL-agent 的回答对比。
 
 ## 面向开发者
 
