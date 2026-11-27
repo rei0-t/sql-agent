@@ -2,13 +2,22 @@
 
 注册的语义是「新开一个工作空间」：用户之间不共享数据源、模型 Key、审计记录。
 所以注册不是往 users 表插一行那么简单，必须同时建 Workspace。
+
+登录带**失败限流**（同一 IP、同一用户名各一个滑动窗口）。
+注意这是**硬锁定**：超限后连正确密码也拒绝，直到窗口过期——
+
+- 为什么必须这样：一旦允许「正确密码穿过限流」，攻击者就能以全速继续猜
+  （每次得到 429 或 200，等于没有限速）。
+- 代价：知道用户名的人可以把你锁住最多 `SQLAGENT_LOGIN_FAILURE_WINDOW` 秒。
+  单机自建场景可接受；公网多租户建议把窗口调短，或在反代层再加一道。
+- 解除：等待窗口过期、重启进程，或调用 `reset_login_limits()`。
 """
 
 from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +27,7 @@ from app.audit import record as audit_record
 from app.config import settings
 from app.deps import get_current_user, get_session
 from app.models import User, Workspace
+from app.ratelimit import SlidingWindowLimiter
 from app.schemas import (
     AuthConfigOut,
     LoginRequest,
@@ -30,6 +40,26 @@ from app.security import create_access_token, hash_password, verify_password
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.@-]{3,64}$")
+
+# 进程内限流器：单进程部署够用；多副本时由反代/WAF 兜底（见 deploy 文档）
+_login_limiter = SlidingWindowLimiter(
+    limit=settings.login_max_failures_per_ip,
+    window_seconds=settings.login_failure_window,
+)
+_user_limiter = SlidingWindowLimiter(
+    limit=settings.login_max_failures_per_user,
+    window_seconds=settings.login_failure_window,
+)
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def reset_login_limits() -> None:
+    """测试与运维用：清空所有失败计数。"""
+    _login_limiter.clear()
+    _user_limiter.clear()
 
 
 def _issue(user: User) -> TokenResponse:
@@ -48,10 +78,32 @@ async def auth_config() -> AuthConfigOut:
 @router.post("/login", response_model=TokenResponse)
 async def login(
     body: LoginRequest,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> TokenResponse:
+    ip_key = f"ip:{_client_ip(request)}"
+    user_key = f"user:{body.username.lower()}"
+
+    if settings.login_ratelimit_enabled:
+        for decision in (_login_limiter.check(ip_key), _user_limiter.check(user_key)):
+            if not decision.allowed:
+                await audit_record(
+                    "auth.login",
+                    actor=Actor.anonymous(body.username),
+                    result="denied",
+                    detail={"reason": "rate_limited", "retry_after": decision.retry_after},
+                )
+                raise HTTPException(
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    f"失败次数过多，请 {decision.retry_after} 秒后再试",
+                    headers={"Retry-After": str(decision.retry_after)},
+                )
+
     user = await session.scalar(select(User).where(User.username == body.username))
     if user is None or not verify_password(body.password, user.password_hash):
+        if settings.login_ratelimit_enabled:
+            _login_limiter.hit(ip_key)
+            _user_limiter.hit(user_key)
         await audit_record(
             "auth.login",
             actor=Actor(workspace_id=user.workspace_id, id=user.id, name=user.username)
@@ -64,6 +116,12 @@ async def login(
 
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "账号已被禁用")
+
+    # 登录成功就清掉失败计数；这只在「还没超限」时有意义——
+    # 一旦硬锁定生效，正确密码也进不来（见模块 docstring 的取舍说明）
+    if settings.login_ratelimit_enabled:
+        _login_limiter.reset(ip_key)
+        _user_limiter.reset(user_key)
 
     await audit_record(
         "auth.login",

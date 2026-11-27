@@ -54,7 +54,12 @@ async def list_audit(
     user: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ) -> AuditPageOut:
-    conditions = [AuditLog.workspace_id == user.workspace_id]
+    # 工作空间隔离。管理员额外能看到 workspace 0 的全局安全事件
+    # （未知用户名的登录失败、被限流的尝试——这些在写审计时还不知道属于谁）。
+    if user.is_admin:
+        conditions = [AuditLog.workspace_id.in_([user.workspace_id, 0])]
+    else:
+        conditions = [AuditLog.workspace_id == user.workspace_id]
     if action:
         conditions.append(AuditLog.action == action)
     if result:

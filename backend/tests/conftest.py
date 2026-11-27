@@ -46,6 +46,25 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "test-password"
 
 
+@pytest.fixture(autouse=True)
+def offline_dns(monkeypatch):
+    """测试不依赖真实 DNS：域名一律解析成公网地址。
+
+    需要「解析到内网」的用例，自己在测试里 monkeypatch 掉 app.netguard._resolve。
+    """
+    monkeypatch.setattr("app.netguard._resolve", lambda host, port: ["93.184.216.34"])
+
+
+@pytest.fixture(autouse=True)
+def clean_rate_limits():
+    """每个用例都从零开始计失败次数，避免互相干扰。"""
+    from app.api.auth import reset_login_limits
+
+    reset_login_limits()
+    yield
+    reset_login_limits()
+
+
 @pytest.fixture(scope="session")
 def client() -> TestClient:
     with TestClient(app) as test_client:

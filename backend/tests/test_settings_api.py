@@ -86,11 +86,11 @@ def test_llm_test_without_key(client: TestClient, admin_headers: dict[str, str])
 
 
 def test_llm_test_rejects_bad_url(client: TestClient, admin_headers: dict[str, str]) -> None:
+    """非 http(s) 的地址在校验层就被拒，压根不会发出请求。"""
     response = client.post(
         "/api/v1/settings/llm/test",
         headers=admin_headers,
         json={"base_url": "ftp://example.com", "model": "m", "api_key": "sk-x"},
     )
-    assert response.status_code == 200
-    assert response.json()["ok"] is False
-    assert "http" in response.json()["message"]
+    assert response.status_code == 400
+    assert "http" in response.json()["detail"]

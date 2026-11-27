@@ -100,11 +100,13 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 | 项 | 结果 |
 |---|---|
-| 后端测试 | 75 passed（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
+| 后端测试 | **95 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
 | 端到端 | 登录 → 建源 → 测试 → 取结构：5 张表 / 20,000 订单 / 67 ms |
 | 真实问答 | 「2026 Q3 华东区 GMV」→ `15,579,548.46`，与手算一致，11.6s / 4.3k token |
 | 开发者接口 | 用 `sa_live_…` 调 `/query`，12.1s 返回 `{sql, columns, rows, summary, tokens}` |
-| 审计链路 | 一次问答自动落 `chat.read`，带 request_id / SQL / token / 耗时；失败登录也留痕 |
+| 审计链路 | 一次问答自动落 `chat.read`，带 request_id / SQL / token / 耗时；失败与被限流的登录都留痕 |
+| SSRF | `127.0.0.1 / localhost / 169.254.169.254 / 10.x / ::1 / 解析到内网的域名` 全部 400；公网端点正常保存 |
+| 限流 | 同一用户名 5 次失败后第 6 次 429（带 `Retry-After`）；成功登录清零；关开关即恢复 |
 | 迁移 | 空库 `upgrade` 建 6 张表；老库自动 stamp；`alembic check` 与模型零差异 |
 | 评测 | 20 题演示集，`qwen-plus`，EX 见下方「评测」一节 |
 | 前端构建 | `vue-tsc --noEmit` 0 error + `vite build` 成功，产物 gzip 71 KB |
@@ -327,7 +329,7 @@ deploy/           Dockerfile 与 compose
 | P1 | 上下文装配、语义层、两段式生成、只读闸门、自纠错、SSE 对话、20 题评测 | ✅ |
 | P1.5 | 审计层（独立事务 + request id + 控制台）、Alembic 迁移、归属校验收敛、缓存上界 | ✅ |
 | P2 | 变更通道：dry-run 预览、diff 确认、执行、回执、反向 SQL、30 题写评测 | ⏸ 本期不做 |
-| P3 | RBAC、L3 审批、登录限流、审计归档 | ⏳ |
+| P3 | RBAC、L3 审批、注册限流、审计归档、JWT 改 cookie | ⏳ |
 | P4 | 文档站、多架构镜像、release 流程、英文 README | ⏳ |
 | P5 | iframe 嵌入、OpenAPI 描述、MCP server、图表 | ⏳ |
 
@@ -338,7 +340,18 @@ P2 不是"还没做"，是**这一期明确不做**：没有 `/mutation` 路由�
 ## 安全声明
 
 本项目**只读**：所有查询都走只读连接（SQLite `mode=ro`，MySQL/PG 请使用只有 SELECT 权限的账号），闸门只放行单条 SELECT 并强制 `LIMIT`。
+
+三条已经内置的防线，值得单独说明：
+
+| 面 | 做法 | 开关 |
+|---|---|---|
+| **BYOK 的 SSRF** | 保存/测试 `base_url` 时解析域名，拒绝一切非公网地址（`127.0.0.1`、`169.254.169.254` 云元数据、`10/8` 等），含 IPv4-mapped IPv6 | `SQLAGENT_LLM_ALLOW_PRIVATE_HOSTS=true` 放行（本地跑 Ollama/vLLM 时） |
+| **登录爆破** | 同一 IP 与同一用户名各一个滑动窗口，超限返回 429（带 `Retry-After`），并记一条 `rate_limited` 审计。**硬锁定**：超限后正确密码也拒绝——否则限流形同虚设；代价是知道用户名的人可以把你锁 5 分钟 | `SQLAGENT_LOGIN_RATELIMIT_ENABLED=false` 关闭 |
+| **越权读** | 所有数据源查询按 `workspace_id` 过滤，「不存在」与「无权」统一返回 404，避免用状态码探测 id | — |
+
 仍然建议：不要用生产主库的超级账号接入、保留备份、把它当成一个"能读全库的助手"来评估权限风险。因配置不当（例如误用了高权限账号）造成的数据泄露由使用者承担。
+
+还**没有**做的：JWT 存 localStorage（XSS 可窃取）、注册频率限制、审计日志自动归档。这几项在 Roadmap 的 P3。
 
 ## 贡献
 

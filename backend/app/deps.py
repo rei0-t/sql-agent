@@ -36,6 +36,12 @@ class Principal:
     actor_id: int | None
     actor_name: str
     via: Literal["session", "api_key"]
+    # admin 能看到跨租户的安全事件（例如「未知用户名的登录失败」，落在 workspace 0）
+    role: str = "member"
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
 
     # 兼容 User 的字段名，方便路由里同一套代码同时服务两种身份
     @property
@@ -116,6 +122,7 @@ async def get_principal(
         actor_id=user.id,
         actor_name=user.username,
         via="session",
+        role=user.role,
     )
 
 

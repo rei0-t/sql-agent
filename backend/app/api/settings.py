@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,10 +14,19 @@ from app.config import settings
 from app.deps import Principal, get_auditor, get_principal, get_session
 from app.engine.llm import probe_endpoint
 from app.models import LlmSetting
+from app.netguard import UnsafeUrlError, check_base_url
 from app.schemas import LlmSettingIn, LlmSettingOut, LlmTestIn, LlmTestOut
 from app.security import get_secret_box
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+def _safe_base_url(url: str) -> str:
+    """校验用户填的模型端点：不允许指向内网（BYOK 的 SSRF 面）。"""
+    try:
+        return check_base_url(url, allow_private=settings.llm_allow_private_hosts)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 def _mask(key: str) -> str:
@@ -79,7 +88,7 @@ async def save_llm_setting(
         session.add(row)
 
     if body.base_url.strip():
-        row.base_url = body.base_url.strip().rstrip("/")
+        row.base_url = _safe_base_url(body.base_url)
     if body.model.strip():
         row.model = body.model.strip()
     if body.api_key is not None:
@@ -111,7 +120,9 @@ async def test_llm_setting(
 ) -> LlmTestOut:
     row = await _load(session, user.workspace_id)
 
-    base_url = (body.base_url or (row.base_url if row else "") or settings.llm_base_url).rstrip("/")
+    base_url = _safe_base_url(
+        body.base_url or (row.base_url if row else "") or settings.llm_base_url
+    )
     model = body.model or (row.model if row else "") or settings.llm_model
 
     if body.api_key is not None:

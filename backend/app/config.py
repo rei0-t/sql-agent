@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     # 固定采样种子，便于复现与评测；留空则不下发该参数
     llm_seed: int | None = None
+    # 是否允许把模型端点指向内网/本机（本地跑 Ollama、vLLM 时需要打开）
+    llm_allow_private_hosts: bool = False
+
+    # ---- 登录限流 ----
+    login_ratelimit_enabled: bool = True
+    login_max_failures_per_ip: int = 10
+    login_max_failures_per_user: int = 5
+    login_failure_window: int = 300
 
     # ---- 只读通道限额 ----
     read_max_rows: int = 200
