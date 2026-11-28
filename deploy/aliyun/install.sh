@@ -146,6 +146,22 @@ else
 fi
 
 if [[ -n "$TARGET" ]]; then
+  # 已经启用 HTTPS 的机器，重跑 install.sh 不能把 TLS 配置覆盖成 HTTP 版：
+  # 那样 443 会直接不监听，站点变成"拒绝连接"（真实事故，2026-11 发生过一次）。
+  if grep -q 'ssl_certificate' "$TARGET" 2>/dev/null; then
+    echo "    检测到已启用 HTTPS，保留现有 Nginx 配置"
+    TARGET=""
+  elif compgen -G "/etc/letsencrypt/live/*" >/dev/null 2>&1; then
+    echo "    检测到已有证书，恢复 HTTPS 配置"
+    if QUIET=1 bash deploy/aliyun/restore-https.sh; then
+      TARGET=""
+    else
+      warn "HTTPS 恢复失败，退回 HTTP 配置保证可用"
+    fi
+  fi
+fi
+
+if [[ -n "$TARGET" ]]; then
   cp deploy/aliyun/nginx-http.conf "$TARGET"
   if nginx -t >/dev/null 2>&1; then
     systemctl reload nginx

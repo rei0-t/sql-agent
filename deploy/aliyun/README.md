@@ -160,3 +160,31 @@ curl -s -o /dev/null -w '%{http_code}\n' https://你的域名/api/v1/datasources
 | 提问一直转圈 | Nginx 没关 `proxy_buffering`，或模型 Key 无效（设置页点「测试连接」看具体报错） |
 | 登录 401 但密码没错 | 元数据库换了实例但 `SECRET_KEY` 没同步（令牌签名对不上） |
 | 域名打不开但 IP 能开 | 大陆节点未备案 |
+
+## 已经开了 HTTPS，之后怎么升级
+
+**不要**直接跑 `install.sh` 就把 Nginx 配置换成 HTTP 版 —— 早期版本会覆盖
+`/etc/nginx/conf.d/sql-agent.conf`，导致 443 不再监听、站点变成「拒绝连接」。
+
+现在 `install.sh` 会自己识别：
+
+| 机器状态 | install.sh 的行为 |
+|---|---|
+| 配置里已有 `ssl_certificate` | 保留不动 |
+| 有 `/etc/letsencrypt/live/*` 但配置是 HTTP 版 | 自动调用 `restore-https.sh` 恢复 |
+| 全新机器 | 写入 HTTP 配置 |
+
+升级 HTTPS 站点的正确姿势：
+
+```bash
+cd /opt/sql-agent && git pull
+sudo bash deploy/aliyun/install.sh      # 会保留/恢复 HTTPS
+```
+
+如果哪天又发现 https 打不开、80 能打开：
+
+```bash
+sudo bash deploy/aliyun/restore-https.sh
+```
+
+域名和证书路径它会从 `/etc/letsencrypt/live` 自动推断，不用手填。
