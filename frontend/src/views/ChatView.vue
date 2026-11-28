@@ -523,9 +523,7 @@ function formatCell(value: unknown): string {
             <RouterLink class="composer__link" :to="{ name: 'settings' }">设置</RouterLink>
             填 Base URL、模型名和 Key。
           </template>
-          <template v-else-if="exhausted">
-            试用额度已用完。想继续用，在「设置」里填自己的模型 Key，或联系站点管理员。
-          </template>
+          <template v-else-if="exhausted">只读查询 · 用完额度时请加一档自己的模型</template>
           <template v-else>
             Enter 发送 · Shift + Enter 换行 · 只读查询
           </template>
@@ -541,11 +539,11 @@ function formatCell(value: unknown): string {
   align-items: baseline;
   gap: 5px;
   padding: 6px 13px 7px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent, #0f9d63) 28%, #fff);
-  background: color-mix(in srgb, var(--accent, #0f9d63) 8%, #fff);
+  border-radius: var(--r-full, 999px);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
   font-size: 12.5px;
-  color: var(--accent-ink, #0b6b45);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
@@ -553,42 +551,60 @@ function formatCell(value: unknown): string {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent, #0f9d63);
+  background: var(--ok);
 }
 
 .quota__num {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
   font-size: 19px;
   font-weight: 800;
   line-height: 1;
-  color: inherit;
+  color: var(--ink);
   letter-spacing: -0.02em;
 }
 
+.quota__text {
+  color: var(--ink-3);
+}
+
 .quota--low {
-  border-color: color-mix(in srgb, #f59e0b 45%, #fff);
-  background: color-mix(in srgb, #f59e0b 10%, #fff);
-  color: #92400e;
+  border-color: #f0d9b5;
+  background: var(--warn-soft);
 }
 
 .quota--low .quota__dot {
-  background: #f59e0b;
+  background: var(--warn);
+}
+
+.quota--low .quota__num {
+  color: var(--warn);
+}
+
+.quota--low .quota__text {
+  color: var(--warn);
 }
 
 .quota--out {
-  border-color: color-mix(in srgb, #dc2626 45%, #fff);
-  background: color-mix(in srgb, #dc2626 9%, #fff);
-  color: #991b1b;
+  border-color: #f2c9c5;
+  background: var(--danger-soft);
 }
 
 .quota--out .quota__dot {
-  background: #dc2626;
+  background: var(--danger);
+}
+
+.quota--out .quota__num,
+.quota--out .quota__text {
+  color: var(--danger);
 }
 
 .quota--own {
-  border-color: color-mix(in srgb, var(--accent, #0f9d63) 40%, #fff);
-  background: color-mix(in srgb, var(--accent, #0f9d63) 7%, #fff);
-  color: var(--accent-ink, #0b6b45);
+  background: var(--ok-soft);
+  border-color: #cfe6da;
+}
+
+.quota--own .quota__text {
+  color: var(--ok);
 }
 
 .quota-bar {
@@ -600,10 +616,10 @@ function formatCell(value: unknown): string {
   max-width: 760px;
   padding: 12px 16px;
   border-radius: 12px;
-  border: 1px solid color-mix(in srgb, #dc2626 35%, #fff);
-  background: color-mix(in srgb, #dc2626 6%, #fff);
+  border: 1px solid #f2c9c5;
+  background: var(--danger-soft);
   font-size: 13.5px;
-  color: #7f1d1d;
+  color: var(--danger);
 }
 
 .quota-bar__cta {
@@ -612,9 +628,9 @@ function formatCell(value: unknown): string {
   gap: 4px;
   flex-shrink: 0;
   padding: 7px 14px;
-  border-radius: 9px;
-  background: #18181b;
-  color: #fafafa;
+  border-radius: var(--r-sm, 8px);
+  background: var(--action);
+  color: var(--action-ink);
   font-weight: 600;
   text-decoration: none;
 }
