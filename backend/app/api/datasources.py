@@ -29,6 +29,22 @@ router = APIRouter(prefix="/datasources", tags=["datasources"])
 SAFETY_LEVELS = {"L0", "L1", "L2", "L3"}
 
 
+def _display_path(raw: str) -> str:
+    """界面上显示的路径。
+
+    SQLite 是"服务器上的一个文件"，绝对路径会把部署目录、用户名暴露给所有访客；
+    这里只回相对片段（``data/demo/shop.db``），够辨认、不泄露。
+    """
+    if not raw:
+        return ""
+    text = raw.replace("\\", "/")
+    for marker in ("/data/demo/", "/backend/data/", "/data/uploads/"):
+        index = text.find(marker)
+        if index >= 0:
+            return text[index + 1 :]  # 去掉开头的斜杠
+    return text
+
+
 def _to_out(ds: Datasource) -> DatasourceOut:
     return DatasourceOut(
         id=ds.id,
@@ -36,7 +52,7 @@ def _to_out(ds: Datasource) -> DatasourceOut:
         type=ds.type,
         host=ds.host,
         port=ds.port,
-        database=ds.database,
+        database=_display_path(ds.database),
         username=ds.username,
         safety_level=ds.safety_level,
         is_prod=ds.is_prod,
