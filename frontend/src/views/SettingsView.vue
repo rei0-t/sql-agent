@@ -5,119 +5,33 @@ import { extractErrorMessage } from '@/api/client';
 import { changePassword } from '@/api/auth';
 import {
   createApiKey,
-  fetchLlmSetting,
   listApiKeys,
   revokeApiKey,
-  saveLlmSetting,
-  testLlmSetting,
   type ApiKeyCreated,
   type ApiKeyItem,
-  type LlmSetting,
 } from '@/api/settings';
 import { formatDateTime } from '@/components/datasourceMeta';
+import ModelProfilesPanel from '@/components/ModelProfilesPanel.vue';
 import UiButton from '@/components/ui/UiButton.vue';
 import UiField from '@/components/ui/UiField.vue';
 import UiInput from '@/components/ui/UiInput.vue';
 import UiTag from '@/components/ui/UiTag.vue';
 import { pushToast } from '@/components/ui/useToast';
 
-const setting = ref<LlmSetting | null>(null);
-const form = reactive({ base_url: '', model: '', api_key: '' });
-const keyPlaceholder = ref('保存后只显示末四位');
-const saving = ref(false);
-const testing = ref(false);
-const testResult = ref<{ ok: boolean; message: string } | null>(null);
-
 const keys = ref<ApiKeyItem[]>([]);
 const newKeyName = ref('');
 const creating = ref(false);
 const createdKey = ref<ApiKeyCreated | null>(null);
 
-const sourceLabel = computed(() => {
-  switch (setting.value?.source) {
-    case 'workspace':
-      return { text: '工作区配置', tone: 'ok' as const };
-    case 'env':
-      return { text: '环境变量', tone: 'info' as const };
-    default:
-      return { text: '未配置', tone: 'warn' as const };
-  }
-});
-
 onMounted(async () => {
-  await Promise.all([loadSetting(), loadKeys()]);
+  await loadKeys();
 });
-
-async function loadSetting(): Promise<void> {
-  try {
-    const data = await fetchLlmSetting();
-    setting.value = data;
-    form.base_url = data.base_url;
-    form.model = data.model;
-    form.api_key = '';
-    keyPlaceholder.value = data.api_key_masked
-      ? `${data.api_key_masked} · 留空不修改`
-      : '保存后只显示末四位';
-  } catch (error) {
-    pushToast(extractErrorMessage(error, '读取模型配置失败'), 'error');
-  }
-}
 
 async function loadKeys(): Promise<void> {
   try {
     keys.value = await listApiKeys();
   } catch (error) {
     pushToast(extractErrorMessage(error, '读取 API Key 失败'), 'error');
-  }
-}
-
-async function save(): Promise<void> {
-  if (saving.value) {
-    return;
-  }
-  saving.value = true;
-  testResult.value = null;
-  try {
-    const payload: { base_url: string; model: string; api_key?: string } = {
-      base_url: form.base_url.trim(),
-      model: form.model.trim(),
-    };
-    if (form.api_key.trim()) {
-      payload.api_key = form.api_key.trim();
-    }
-    setting.value = await saveLlmSetting(payload);
-    form.api_key = '';
-    keyPlaceholder.value = setting.value.api_key_masked
-      ? `${setting.value.api_key_masked} · 留空不修改`
-      : '保存后只显示末四位';
-    pushToast('模型配置已保存', 'ok');
-  } catch (error) {
-    pushToast(extractErrorMessage(error, '保存失败'), 'error');
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function testConnection(): Promise<void> {
-  if (testing.value) {
-    return;
-  }
-  testing.value = true;
-  testResult.value = null;
-  try {
-    const result = await testLlmSetting({
-      base_url: form.base_url.trim(),
-      model: form.model.trim(),
-      api_key: form.api_key.trim() || undefined,
-    });
-    testResult.value = {
-      ok: result.ok,
-      message: result.ok ? `连接成功 · ${result.latency_ms} ms` : result.message,
-    };
-  } catch (error) {
-    testResult.value = { ok: false, message: extractErrorMessage(error, '测试失败') };
-  } finally {
-    testing.value = false;
   }
 }
 
@@ -208,45 +122,7 @@ async function submitPassword(): Promise<void> {
       </div>
     </header>
 
-    <section class="panel block">
-      <header class="block__head">
-        <div>
-          <h2 class="block__title">模型</h2>
-          <p class="block__desc">
-            任意 OpenAI 兼容端点：通义千问、DeepSeek、vLLM、Ollama 都可以。Key 加密存储，只回显末四位。
-          </p>
-        </div>
-        <UiTag :tone="sourceLabel.tone">{{ sourceLabel.text }}</UiTag>
-      </header>
-
-      <div class="block__body form-grid">
-        <UiField
-          class="form-grid--full"
-          label="Base URL"
-          hint="例如 https://dashscope.aliyuncs.com/compatible-mode/v1"
-        >
-          <UiInput v-model="form.base_url" mono placeholder="https://api.example.com/v1" />
-        </UiField>
-
-        <UiField label="模型名" hint="例如 qwen-plus / deepseek-chat">
-          <UiInput v-model="form.model" mono placeholder="qwen-plus" />
-        </UiField>
-
-        <UiField label="API Key" :hint="keyPlaceholder">
-          <UiInput v-model="form.api_key" type="password" autocomplete="new-password" placeholder="留空则不修改" />
-        </UiField>
-
-        <div class="form-grid--full actions">
-          <UiButton variant="ghost" size="sm" :loading="testing" @click="testConnection">
-            测试连接
-          </UiButton>
-          <UiButton size="sm" :loading="saving" @click="save">保存</UiButton>
-          <span v-if="testResult" class="result" :class="testResult.ok ? 'result--ok' : 'result--bad'">
-            {{ testResult.message }}
-          </span>
-        </div>
-      </div>
-    </section>
+    <ModelProfilesPanel />
 
     <section class="panel block">
       <header class="block__head">

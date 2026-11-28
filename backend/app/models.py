@@ -141,6 +141,28 @@ class LlmSetting(Base):
     )
 
 
+class ModelProfile(Base):
+    """用户自己的一档模型配置（BYOK 多档）。
+
+    为什么单独建表而不是给 ``llm_settings`` 加列：一个工作空间可能既有
+    "本地 Ollama" 又有 "通义千问" 两套配置，需要在对话页当场切换。
+    key 同样用 SecretBox 加密，接口只回显掩码与末四位。
+
+    ``llm_settings`` 保留为「旧版单档配置」，迁移 0004 会把有 key 的行搬进本表。
+    """
+
+    __tablename__ = "model_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workspace_id: Mapped[int] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    label: Mapped[str] = mapped_column(String(64), default="我的模型")
+    base_url: Mapped[str] = mapped_column(String(255), default="")
+    model: Mapped[str] = mapped_column(String(128), default="")
+    api_key_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
 class ApiKey(Base):
     """开发者 API Key：只存哈希，明文只在创建时返回一次。"""
 

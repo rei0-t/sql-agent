@@ -1,6 +1,10 @@
 import { csrfToken } from './session';
 
 export interface ChatConfig {
+  /** 展示用标签："平台额度（试用）" 或用户自己的档位名 */
+  model_label?: string;
+  model_profile_id?: number | null;
+  using_platform?: boolean;
   model: string;
   configured: boolean;
   max_rows: number;
@@ -8,6 +12,7 @@ export interface ChatConfig {
   max_repair: number;
   /** 剩余提问额度；null / 缺省表示不限 */
   remaining_questions?: number | null;
+  quota_total?: number | null;
 }
 
 export interface ChatEventHandlers {

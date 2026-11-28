@@ -69,3 +69,54 @@ export async function createApiKey(name: string): Promise<ApiKeyCreated> {
 export async function revokeApiKey(id: number): Promise<void> {
   await client.delete(`/keys/${id}`);
 }
+
+// ---------------- 多档模型配置 ----------------
+
+export interface ModelProfile {
+  id: number;
+  label: string;
+  base_url: string;
+  model: string;
+  api_key_masked: string;
+  created_at: string | null;
+  last_used_at: string | null;
+}
+
+export interface PlatformProfile {
+  id: number | null;
+  label: string;
+  kind: string;
+  available: boolean;
+  remaining: number | null;
+}
+
+export interface ModelProfileList {
+  platform: PlatformProfile;
+  items: ModelProfile[];
+}
+
+export async function listModels(): Promise<ModelProfileList> {
+  const { data } = await client.get<ModelProfileList>('/settings/models');
+  return data;
+}
+
+export async function createModel(payload: {
+  label: string;
+  base_url: string;
+  model: string;
+  api_key: string;
+}): Promise<ModelProfile> {
+  const { data } = await client.post<ModelProfile>('/settings/models', payload);
+  return data;
+}
+
+export async function deleteModel(id: number): Promise<void> {
+  await client.delete(`/settings/models/${id}`);
+}
+
+export async function testModel(id: number): Promise<LlmTestResult> {
+  const { data } = await client.post<LlmTestResult>(`/settings/models/${id}/test`, {}, {
+    timeout: 30_000,
+  });
+  return data;
+}

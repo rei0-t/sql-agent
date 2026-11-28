@@ -14,7 +14,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,13 +23,14 @@ from app.config import settings
 from app.deps import (
     Principal,
     get_auditor,
-    get_model_for_principal,
     get_principal,
     get_session,
+    model_for_request,
+    resolve_profile,
 )
 from app.engine.llm import ChatModel
 from app.engine.pipeline import Answer, answer_question
-from app.quota import consume, remaining_for
+from app.quota import consume, limit, profile_has_key, remaining_for
 from app.schemas import ChatConfigOut, ChatFeedbackIn, ChatRequest
 from app.store import owned_datasource, read_password, snapshot
 
@@ -45,30 +46,52 @@ def _sse(event: str, data: dict[str, Any]) -> str:
 
 @router.get("/config", response_model=ChatConfigOut)
 async def chat_config(
-    model: ChatModel = Depends(get_model_for_principal),
+    request: Request,
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
 ) -> ChatConfigOut:
-    remaining_questions = await remaining_for(session, principal)
+    """对话页初始化信息。
+
+    **不回传站点的 Base URL 与真实模型名**：试用用户只该看到"平台额度 · 还剩 N 次"。
+    """
+    profile = await resolve_profile(session, principal.workspace_id)
+    byok = await profile_has_key(session, principal.workspace_id)
+    remaining_questions = await remaining_for(session, principal, byok=byok)
+    using_platform = profile is None
+    label = "平台额度（试用）" if using_platform else (profile.label or "我的模型")
+    # 测试会注入 app.state.llm；此时界面该显示的就是它，而不是环境变量里的名字
+    override = getattr(request.app.state, "llm", None)
+    platform_model = getattr(override, "name", None) or settings.llm_model
     return ChatConfigOut(
-        model=getattr(model, "name", settings.llm_model),
-        configured=bool(getattr(model, "configured", False)),
+        model_label=label,
+        model_profile_id=None if using_platform else profile.id,
+        using_platform=using_platform,
+        # 访客看不到站点的真实模型名；管理员与自建档位可见
+        model=(
+            (profile.model or "") if not using_platform
+            else (platform_model if principal.is_admin else "")
+        ),
+        configured=bool(settings.llm_api_key) or byok,
         max_rows=settings.read_max_rows,
         query_timeout=settings.query_timeout,
         max_repair=settings.max_repair,
         remaining_questions=remaining_questions,
+        quota_total=limit() or None,
     )
 
 
 @router.post("/stream")
 async def chat_stream(
     body: ChatRequest,
+    request: Request,
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
-    model: ChatModel = Depends(get_model_for_principal),
     auditor: Auditor = Depends(get_auditor),
 ) -> StreamingResponse:
     stored = await owned_datasource(session, principal.workspace_id, body.datasource_id)
+    model: ChatModel = await model_for_request(
+        request, session, principal.workspace_id, body.model_profile_id
+    )
     password = read_password(stored)
     ds = snapshot(stored)
 
@@ -82,7 +105,7 @@ async def chat_stream(
 
     # 额度：用公共 Key 对外开放时，这层是唯一防刷的手段
     try:
-        remaining = await consume(session, principal)
+        remaining = await consume(session, principal, body.model_profile_id)
     except HTTPException as exc:
         await auditor.log(
             "chat.read",

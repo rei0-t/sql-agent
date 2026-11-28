@@ -6,16 +6,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import Auditor
 from app.deps import (
     Principal,
     get_auditor,
-    get_model_for_principal,
     get_principal,
     get_session,
+    model_for_request,
 )
 from app.engine.llm import ChatModel
 from app.engine.pipeline import answer_question
@@ -29,12 +29,15 @@ router = APIRouter(tags=["query"])
 @router.post("/query", response_model=QueryOut)
 async def run_query(
     body: QueryIn,
+    request: Request,
     principal: Principal = Depends(get_principal),
     session: AsyncSession = Depends(get_session),
-    model: ChatModel = Depends(get_model_for_principal),
     auditor: Auditor = Depends(get_auditor),
 ) -> QueryOut:
     ds = await owned_datasource(session, principal.workspace_id, body.datasource_id)
+    model: ChatModel = await model_for_request(
+        request, session, principal.workspace_id, getattr(body, "model_profile_id", None)
+    )
 
     # 没配 Key 是配置故障：先拒绝，别浪费用户的额度
     if not getattr(model, "configured", True):
@@ -44,7 +47,7 @@ async def run_query(
         )
 
     # 与 /chat/stream 共用同一个额度账本
-    await consume(session, principal)
+    await consume(session, principal, getattr(body, 'model_profile_id', None))
 
     answer = await answer_question(ds, read_password(ds), body.question, model)
 

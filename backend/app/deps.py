@@ -18,7 +18,7 @@ from app.config import settings
 from app.csrf import SAFE_METHODS, SESSION_COOKIE
 from app.db import SessionLocal
 from app.engine.llm import ChatModel, OpenAICompatibleModel, get_default_model
-from app.models import ApiKey, LlmSetting, User, utcnow
+from app.models import ApiKey, ModelProfile, User, utcnow
 from app.security import decode_access_token, get_secret_box
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -175,16 +175,39 @@ async def get_auditor(principal: Principal = Depends(get_principal)) -> Auditor:
     return Auditor(actor=Actor.of(principal))
 
 
-async def build_model(session: AsyncSession, workspace_id: int) -> ChatModel:
-    """按工作空间解析模型：界面里配了就用界面的，没配回退到环境变量。"""
-    setting = await session.scalar(
-        select(LlmSetting).where(LlmSetting.workspace_id == workspace_id)
+async def resolve_profile(
+    session: AsyncSession, workspace_id: int, profile_id: int | None = None
+) -> ModelProfile | None:
+    """取要用的那档模型。
+
+    ``profile_id=None`` 表示"默认档"（最早创建的那档）；
+    完全不选、也没有任何档位 → 用平台额度。
+    """
+    if profile_id is None:
+        return await session.scalar(
+            select(ModelProfile)
+            .where(ModelProfile.workspace_id == workspace_id)
+            .order_by(ModelProfile.id)
+            .limit(1)
+        )
+    return await session.scalar(
+        select(ModelProfile).where(
+            ModelProfile.id == profile_id,
+            ModelProfile.workspace_id == workspace_id,
+        )
     )
-    if setting and setting.api_key_enc:
+
+
+async def build_model(
+    session: AsyncSession, workspace_id: int, profile_id: int | None = None
+) -> ChatModel:
+    """按工作空间 + 选中的档位解析模型：有档位用档位，没有回退到环境变量。"""
+    profile = await resolve_profile(session, workspace_id, profile_id)
+    if profile is not None and profile.api_key_enc:
         return OpenAICompatibleModel(
-            base_url=setting.base_url or settings.llm_base_url,
-            api_key=get_secret_box().decrypt(setting.api_key_enc),
-            model=setting.model or settings.llm_model,
+            base_url=profile.base_url or settings.llm_base_url,
+            api_key=get_secret_box().decrypt(profile.api_key_enc),
+            model=profile.model or settings.llm_model,
             timeout=settings.llm_timeout,
             temperature=settings.llm_temperature,
             seed=settings.llm_seed,
@@ -217,3 +240,19 @@ async def get_model_for_principal(
     if override is not None:
         return override
     return await build_model(session, principal.workspace_id)
+
+
+async def model_for_request(
+    request: Request,
+    session: AsyncSession,
+    workspace_id: int,
+    profile_id: int | None = None,
+) -> ChatModel:
+    """路由内解析模型（能读请求体里的 profile_id）。
+
+    测试里把 ``app.state.llm`` 换成 FakeModel 时优先用它。
+    """
+    override = getattr(request.app.state, "llm", None)
+    if override is not None:
+        return override
+    return await build_model(session, workspace_id, profile_id)

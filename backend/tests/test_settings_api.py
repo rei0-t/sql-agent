@@ -48,7 +48,7 @@ def test_llm_setting_lifecycle(client: TestClient, admin_headers: dict[str, str]
     # 落库是密文
     conn = _meta_db()
     try:
-        row = conn.execute("select api_key_enc from llm_settings limit 1").fetchone()
+        row = conn.execute("select api_key_enc from model_profiles limit 1").fetchone()
     finally:
         conn.close()
     assert row is not None and SECRET not in row[0]

@@ -158,16 +158,24 @@ class SchemaOut(BaseModel):
 class ChatRequest(BaseModel):
     datasource_id: int
     question: str = Field(min_length=1, max_length=2000)
+    # 用哪一档模型；空 = 用平台额度（试用）
+    model_profile_id: int | None = None
 
 
 class ChatConfigOut(BaseModel):
-    model: str
+    # 展示用的标签（"平台额度（试用）" 或用户自己起的名字）；不含端点与真实模型名
+    model_label: str = ""
+    model_profile_id: int | None = None
+    # 是否用平台额度（前端据此显示"试用"话术）
+    using_platform: bool = True
+    model: str = ""
     configured: bool
     max_rows: int
     query_timeout: int
     max_repair: int
     # 剩余提问额度；None = 不限（管理员或关闭了额度）
     remaining_questions: int | None = None
+    quota_total: int | None = None
 
 
 class ChatFeedbackIn(BaseModel):
@@ -239,6 +247,7 @@ class ApiKeyCreatedOut(BaseModel):
 class QueryIn(BaseModel):
     datasource_id: int
     question: str = Field(min_length=1, max_length=2000)
+    model_profile_id: int | None = None
 
 
 class QueryOut(BaseModel):
@@ -283,3 +292,36 @@ class AuditBucketOut(BaseModel):
     action: str
     result: str
     count: int
+
+class ModelProfileIn(BaseModel):
+    """新建/更新一档模型配置。"""
+
+    label: str = Field(default="", max_length=64)
+    base_url: str = Field(min_length=1, max_length=255)
+    model: str = Field(min_length=1, max_length=128)
+    api_key: str = Field(min_length=1, max_length=255)
+
+
+class ModelProfileOut(BaseModel):
+    id: int
+    label: str
+    base_url: str
+    model: str
+    api_key_masked: str
+    created_at: datetime | None = None
+    last_used_at: datetime | None = None
+
+
+class PlatformProfileOut(BaseModel):
+    """平台额度：只说明"可用/次数上限"，不回传端点与模型名。"""
+
+    id: int | None = None
+    label: str
+    kind: str = "platform"
+    available: bool
+    remaining: int | None = None
+
+
+class ModelProfileListOut(BaseModel):
+    platform: PlatformProfileOut
+    items: list[ModelProfileOut]

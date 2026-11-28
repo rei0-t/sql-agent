@@ -4,6 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router';
 
 import { fetchChatConfig, streamChat, type ChatConfig } from '@/api/chat';
+import { listModels, type ModelProfile } from '@/api/settings';
 import { extractErrorMessage } from '@/api/client';
 import AppIcon from '@/components/AppIcon.vue';
 import BrandMark from '@/components/BrandMark.vue';
@@ -34,6 +35,11 @@ const config = ref<ChatConfig | null>(null);
 /** 剩余提问额度：null = 不限（管理员或未开启额度） */
 const remaining = ref<number | null>(null);
 const selectedDs = ref('');
+/** 模型档位：'' = 平台额度 */
+const selectedModel = ref('');
+const models = ref<ModelProfile[]>([]);
+const platformLabel = ref('平台额度（试用）');
+const usingPlatform = computed(() => selectedModel.value === '');
 const input = ref('');
 const running = ref(false);
 const scrollRef = ref<HTMLElement | null>(null);
@@ -62,8 +68,23 @@ onMounted(async () => {
   try {
     config.value = await fetchChatConfig();
     remaining.value = config.value.remaining_questions ?? null;
+    if (config.value.model_label) {
+      platformLabel.value = config.value.using_platform
+        ? config.value.model_label
+        : '平台额度（试用）';
+    }
+    if (config.value.model_profile_id) {
+      selectedModel.value = String(config.value.model_profile_id);
+    }
   } catch {
     config.value = null;
+  }
+  try {
+    const data = await listModels();
+    models.value = data.items;
+    platformLabel.value = data.platform.label || platformLabel.value;
+  } catch {
+    models.value = [];
   }
   try {
     await store.load();
@@ -82,6 +103,15 @@ onMounted(async () => {
   const preset = route.query.q;
   if (typeof preset === 'string' && preset.trim() && store.items.length) {
     await send(preset.trim());
+  }
+});
+
+watch(selectedModel, async () => {
+  try {
+    config.value = await fetchChatConfig();
+    remaining.value = config.value.remaining_questions ?? null;
+  } catch {
+    /* 忽略：不影响继续提问 */
   }
 });
 
@@ -289,6 +319,20 @@ function formatCell(value: unknown): string {
         <span class="bar__title">{{ thread?.title ?? '新对话' }}</span>
       </div>
       <div class="bar__right">
+        <div
+          v-if="quotaLeft !== null"
+          class="quota"
+          :class="{ 'quota--low': quotaLeft <= 1, 'quota--out': exhausted }"
+          :title="`试用额度：还剩 ${quotaLeft} 次`"
+        >
+          <span class="quota__dot" />
+          <span class="quota__num">{{ quotaLeft }}</span>
+          <span class="quota__text">次试用可用</span>
+        </div>
+        <div v-else-if="!usingPlatform" class="quota quota--own">
+          <span class="quota__dot" />
+          <span class="quota__text">自有 Key · 不限次数</span>
+        </div>
         <label class="ds" :class="{ 'is-empty': !hasDatasource }">
           <AppIcon name="database" :size="15" />
           <select v-model="selectedDs" :disabled="!hasDatasource" aria-label="数据源">
@@ -299,7 +343,17 @@ function formatCell(value: unknown): string {
           </select>
           <AppIcon name="chevron" :size="14" />
         </label>
-        <span v-if="config" class="model">{{ config.model }}</span>
+        <label v-if="models.length" class="ds">
+          <AppIcon name="settings" :size="15" />
+          <select v-model="selectedModel" aria-label="模型">
+            <option value="">{{ platformLabel }}</option>
+            <option v-for="item in models" :key="item.id" :value="String(item.id)">
+              {{ item.label }}
+            </option>
+          </select>
+          <AppIcon name="chevron" :size="14" />
+        </label>
+        <span v-else-if="config" class="model">{{ config.model_label || config.model }}</span>
       </div>
     </header>
 
@@ -418,6 +472,14 @@ function formatCell(value: unknown): string {
     </div>
 
     <footer class="composer">
+      <div v-if="exhausted" class="quota-bar">
+        <div class="quota-bar__text">
+          试用次数已用完（共 {{ config?.quota_total ?? 5 }} 次）。加一档自己的模型 Key，次数不限。
+        </div>
+        <RouterLink class="quota-bar__cta" :to="{ name: 'settings' }">
+          去设置 <AppIcon name="chevron" :size="14" />
+        </RouterLink>
+      </div>
       <div class="composer__inner">
         <div class="composer__box" :class="{ 'is-disabled': !hasDatasource }">
           <textarea
@@ -466,7 +528,6 @@ function formatCell(value: unknown): string {
           </template>
           <template v-else>
             Enter 发送 · Shift + Enter 换行 · 只读查询
-            <template v-if="quotaLeft !== null"> · 还剩 {{ quotaLeft }} 次提问</template>
           </template>
         </p>
       </div>
@@ -475,6 +536,89 @@ function formatCell(value: unknown): string {
 </template>
 
 <style scoped>
+.quota {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 6px 13px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent, #0f9d63) 28%, #fff);
+  background: color-mix(in srgb, var(--accent, #0f9d63) 8%, #fff);
+  font-size: 12.5px;
+  color: var(--accent-ink, #0b6b45);
+  white-space: nowrap;
+}
+
+.quota__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent, #0f9d63);
+}
+
+.quota__num {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1;
+  color: inherit;
+  letter-spacing: -0.02em;
+}
+
+.quota--low {
+  border-color: color-mix(in srgb, #f59e0b 45%, #fff);
+  background: color-mix(in srgb, #f59e0b 10%, #fff);
+  color: #92400e;
+}
+
+.quota--low .quota__dot {
+  background: #f59e0b;
+}
+
+.quota--out {
+  border-color: color-mix(in srgb, #dc2626 45%, #fff);
+  background: color-mix(in srgb, #dc2626 9%, #fff);
+  color: #991b1b;
+}
+
+.quota--out .quota__dot {
+  background: #dc2626;
+}
+
+.quota--own {
+  border-color: color-mix(in srgb, var(--accent, #0f9d63) 40%, #fff);
+  background: color-mix(in srgb, var(--accent, #0f9d63) 7%, #fff);
+  color: var(--accent-ink, #0b6b45);
+}
+
+.quota-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 auto 10px;
+  max-width: 760px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, #dc2626 35%, #fff);
+  background: color-mix(in srgb, #dc2626 6%, #fff);
+  font-size: 13.5px;
+  color: #7f1d1d;
+}
+
+.quota-bar__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 7px 14px;
+  border-radius: 9px;
+  background: #18181b;
+  color: #fafafa;
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .chat {
   display: flex;
   flex-direction: column;
