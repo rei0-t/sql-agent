@@ -115,7 +115,7 @@ SQL-agent 现在的选择是**先把只读做到可信**：只读连接 + AST �
 
 | 项 | 结果 |
 |---|---|
-| 后端测试 | **179 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、语义层隔离 7 例、提问额度 12 例、上传 14 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
+| 后端测试 | **202 passed**（闸门 26 项拒绝用例、执行器、问答循环、SSE、BYOK、SSRF 13 例、登录限流 7 例、缓存与语义层 9 例、注入防护与严格白名单 20 例、注册限流 4 例、语义层隔离 7 例、提问额度 12 例、上传 14 例、API Key、注册与多租户隔离、审计隔离与失败留痕、凭证加密） |
 | 端到端 | 登录 → 建源 → 测试 → 取结构：5 张表 / 20,000 订单 / 67 ms |
 | **线上环境** | `https://sqlagent.help/`：Docker + Nginx + Let's Encrypt（TLS 1.3，HSTS，cookie `Secure`）；注册 → 示例库 → 5 次额度 → 第 6 次 429，已从外网实测 |
 | **MySQL 全链路** | MySQL 8.1：连接 5ms → 5 张表 / 8,000 订单 / 16,133 明细 → 「2026 Q3 华东 GMV」= `12,628,663.50`（与手算**逐位一致**）→ 品类 Top3 三个数字全对 |
@@ -337,7 +337,8 @@ SQLAGENT_LLM_API_KEY=sk-...
 两条注意：
 
 - **本地端点**（Ollama / vLLM）默认会被 SSRF 防护拦下，需要 `SQLAGENT_LLM_ALLOW_PRIVATE_HOSTS=true`
-- **每个工作空间也可以在界面里各配各的**（BYOK）：站点放的公共 Key 只给没配的人用
+- **每个工作空间可以配多档模型**（BYOK）：在「设置 → 模型」里加，对话页顶栏像切换数据源一样切换
+- 没配自己的 Key 时走**平台额度**，界面只显示「还剩 N 次试用」，不暴露站点的 Base URL 与模型名
 
 > 准确性只在百炼的 `qwen-plus` / `qwen-flash` 上实测过（见「评测」一节）。换别家需要自己跑一遍
 > `evals/run_eval.py` 对比——方言细节（日期函数、`LIMIT` 写法）和中文口径理解差异不小。
@@ -405,7 +406,11 @@ deploy/           Dockerfile 与 compose
 | GET | `/api/v1/users` | **管理员**：账号列表 |
 | POST | `/api/v1/users/{id}/disable` \| `/enable` | **管理员**：禁用 / 启用（禁用会作废在线会话） |
 | POST | `/api/v1/users/{id}/reset-password` | **管理员**：重置为一次性临时口令 |
-| GET/PUT | `/api/v1/settings/llm` | 读 / 写模型配置（BYOK），Key 只回显末四位 |
+| GET | `/api/v1/settings/models` | 模型档位列表：平台额度 + 自建配置（不含站点端点） |
+| POST | `/api/v1/settings/models` | 新增一档模型配置（Base URL / 模型 / Key） |
+| DELETE | `/api/v1/settings/models/{id}` | 删除一档 |
+| POST | `/api/v1/settings/models/{id}/test` | 测试某档连通性 |
+| GET/PUT | `/api/v1/settings/llm` | 兼容旧客户端：读写「默认档」，Key 只回显末四位 |
 | POST | `/api/v1/settings/llm/test` | 测试模型连通性 |
 | GET/POST | `/api/v1/keys` | 开发者 API Key 列表 / 创建（明文只返回一次） |
 | DELETE | `/api/v1/keys/{id}` | 吊销 Key |
